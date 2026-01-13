@@ -22,7 +22,7 @@
    - Improve evaluation heuristics
    - Use self-play games for testing and tuning
 
-# --------------------MIDSEM EVAL----------------------------
+## --------------------MIDSEM EVAL----------------------
 
 6. **Hyperparameter Tuning & Performance Optimization**
    - Deep Learning
@@ -40,4 +40,4 @@
    - Run round-robin matches against other engines
    - Compare results using evaluation metrics (win rate, ELO, nodes/sec)
 
-# --------------------ENDSEM EVAL----------------------------
+## --------------------ENDSEM EVAL----------------------
