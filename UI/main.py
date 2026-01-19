@@ -4,7 +4,8 @@ import pygame
 import sys
 import values
 import pieces
-from chessboard import create_chessboard
+import importlib
+import chessboard
 
 
 def parse_args():
@@ -27,7 +28,7 @@ def main():
 	args = parse_args()
 	pygame.init()
 
-	board = create_chessboard(rows=args.rows, cols=args.cols, square_size=args.square_size, margin=args.margin)
+	board = chessboard.create_chessboard(rows=args.rows, cols=args.cols, square_size=args.square_size, margin=args.margin)
 
 	# demo: place the test piece (resolved via pieces.py using placeholders from values)
 	demo_name = args.demo_piece
@@ -72,6 +73,29 @@ def main():
 						board.set_piece(r, c, (symbol, demo_color))
 					else:
 						board.set_piece(r, c, None)
+			elif event.type == pygame.KEYDOWN:
+				# Press R to reload modules and refresh the UI without restarting
+				if event.key == pygame.K_r:
+					importlib.reload(values)
+					importlib.reload(pieces)
+					importlib.reload(chessboard)
+					# recreate board (use same CLI args for rows/cols/sizes)
+					board = chessboard.create_chessboard(rows=args.rows, cols=args.cols, square_size=args.square_size, margin=args.margin)
+					# pick up possibly-updated demo settings from reloaded values
+					demo_name = getattr(values, 'DEMO_PIECE_NAME', demo_name)
+					demo_color = getattr(values, 'DEMO_PIECE_COLOR', demo_color)
+					demo_symbol = pieces.get(demo_name, demo_color)
+					demo_row, demo_col = getattr(values, 'DEMO_PIECE_POS', (demo_row, demo_col))
+					board.set_piece(demo_row, demo_col, (demo_symbol, demo_color))
+					# update window size if values changed
+					window_w = getattr(values, 'WINDOW_WIDTH', window_w)
+					window_h = getattr(values, 'WINDOW_HEIGHT', window_h)
+					screen = pygame.display.set_mode((window_w, window_h))
+					pygame.display.set_caption('Chessboard UI')
+					# recompute top-left so board recenters
+					top_left_x = max(0, (window_w - board.width) // 2)
+					top_left_y = max(0, (window_h - board.height) // 2)
+					top_left = (top_left_x, top_left_y)
 
 		screen.fill(values.BG_COLOR)
 		board.draw(screen, top_left=top_left)
