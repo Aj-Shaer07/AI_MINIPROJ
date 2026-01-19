@@ -3,19 +3,19 @@
 ## Project Workflow
 
 1. **Requirement Analysis**
-   - Get a basic UI working
-   - Define the evaluation function / evaluation metric
+   - Get a basic UI working (in progress)
+   - Define the evaluation function / evaluation metric 
 
 2. **Upgrade to Architecture Planning**
-   - Design engine structure (board representation, move generation, search, evaluation)
+   - Design engine structure (board representation, move generation, search, evaluation) (done basic)
 
 3. **Review of Search & Evaluation Strategy**
-   - Review minimax algorithm with alpha-beta pruning
-   - Evaluate pruning efficiency and depth handling
+   - Review minimax algorithm with alpha-beta pruning 
+   - Evaluate pruning efficiency and depth handling 
 
 4. **Get a Basic Engine Working**
-   - Implement move generation
-   - Implement minimax with alpha-beta pruning
+   - Implement move generation (done)
+   - Implement minimax with alpha-beta pruning (done)
    - Connect evaluation function
 
 5. **Data / Heuristic Improvement & Self-Play**
