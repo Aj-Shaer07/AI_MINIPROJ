@@ -1,5 +1,8 @@
 # Centralized configurable values for the chess UI
 
+import chess
+import pieces
+
 # Window defaults
 WINDOW_WIDTH = 800
 WINDOW_HEIGHT = 640
@@ -18,13 +21,7 @@ LABEL_COLOR = (255, 255, 255)
 PIECE_COLOR = (0, 0, 0)
 HIGHLIGHT_COLOR = (255, 255, 0, 80)  # RGBA for translucent highlight
 
-# Demo test piece (use `pieces.py` to resolve the symbol)
-# Use these to control the initial demo piece and its color. Keep values
-# here simple and logical so adding new pieces remains easy.
-DEMO_PIECE_NAME = 'king'   # logical piece name (key in `pieces.PIECES`)
-DEMO_PIECE_COLOR = 'black' # 'white' or 'black'
-# Default demo position (row, col) — placed near bottom center by default
-DEMO_PIECE_POS = (ROWS - 1, COLS // 2)
+# (Demo piece settings removed)
 
 # Font / rendering
 FONT_NAME = 'Segoe UI Symbol'
@@ -33,4 +30,14 @@ FONT_NAME = 'Segoe UI Symbol'
 PIECE_COLORS = {
 	'white': (255, 255, 255),
 	'black': (0, 0, 0),
+}
+
+# Piece symbol mapping (chess constant -> (black_symbol, white_symbol))
+PIECE_SYMBOL_MAP = {
+    chess.PAWN: (pieces.PIECES['pawn']['black'], pieces.PIECES['pawn']['white']),
+    chess.KNIGHT: (pieces.PIECES['knight']['black'], pieces.PIECES['knight']['white']),
+    chess.BISHOP: (pieces.PIECES['bishop']['black'], pieces.PIECES['bishop']['white']),
+    chess.ROOK: (pieces.PIECES['rook']['black'], pieces.PIECES['rook']['white']),
+    chess.QUEEN: (pieces.PIECES['queen']['black'], pieces.PIECES['queen']['white']),
+    chess.KING: (pieces.PIECES['king']['black'], pieces.PIECES['king']['white']),
 }

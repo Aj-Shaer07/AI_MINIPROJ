@@ -22,9 +22,7 @@ def parse_args():
 	# engine options
 	p.add_argument('--engine-depth', type=int, default=4, help='Engine max search depth')
 
-	# demo options (so you can change demo piece at runtime)
-	p.add_argument('--demo-piece', default=values.DEMO_PIECE_NAME, help='Demo piece name (e.g. king, queen)')
-	p.add_argument('--demo-color', default=values.DEMO_PIECE_COLOR, choices=['white', 'black'], help='Demo piece color')
+	# demo options removed
 
 	return p.parse_args()
 
