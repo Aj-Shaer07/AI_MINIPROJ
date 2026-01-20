@@ -14,17 +14,8 @@ if ALGORITHMS_DIR not in sys.path:
     sys.path.insert(0, ALGORITHMS_DIR)
 
 import algorithms.search as engine_search
-import pieces as ui_pieces
-
-
-PIECE_TYPE_MAP = {
-    chess.PAWN: 'pawn',
-    chess.KNIGHT: 'knight',
-    chess.BISHOP: 'bishop',
-    chess.ROOK: 'rook',
-    chess.QUEEN: 'queen',
-    chess.KING: 'king',
-}
+import values
+import algorithms.main as alg_main
 
 
 class GameController:
@@ -51,7 +42,13 @@ class GameController:
             move = None
 
         if move and move in self.board.legal_moves:
+            try:
+                san = self.board.san(move)
+            except Exception:
+                san = None
             self.board.push(move)
+            self.last_move = move
+            self.last_move_san = san
             return True, move
 
         # handle pawn promotion (try common promotions)
@@ -61,7 +58,13 @@ class GameController:
             except Exception:
                 continue
             if move2 in self.board.legal_moves:
+                try:
+                    san2 = self.board.san(move2)
+                except Exception:
+                    san2 = None
                 self.board.push(move2)
+                self.last_move = move2
+                self.last_move_san = san2
                 return True, move2
 
         return False, None
@@ -72,34 +75,48 @@ class GameController:
         move = engine_search.iterative_deepening(self.board, self.max_depth, engine_is_black=self.engine_is_black)
         if move is None:
             return None
+        try:
+            san = self.board.san(move)
+        except Exception:
+            san = None
         self.board.push(move)
+        self.last_move = move
+        self.last_move_san = san
         return move
 
     def sync_to_ui(self, ui_board) -> None:
         """Populate `ui_board` (an instance of UI.chessboard.ChessBoard) from the current chess.Board."""
-        ui_board.clear()
+        # Faster incremental sync to reduce UI lag:
+        #  - iterate current board piece_map once and update UI slots directly
+        #  - mark visited positions then clear any UI squares not visited
         rows = ui_board.rows
-        for sq, piece in self.board.piece_map().items():
+        cols = ui_board.cols
+        board_map = self.board.piece_map()
+        ui_grid = ui_board.board
+        set_piece = ui_board.set_piece
+        sym_map = values.PIECE_SYMBOL_MAP
+        visited = set()
+
+        # update or set pieces present on the chess.Board
+        for sq, piece in board_map.items():
             file_idx = chess.square_file(sq)
             rank_idx = chess.square_rank(sq)
             col = file_idx
             row = rows - 1 - rank_idx
-
-            piece_name = PIECE_TYPE_MAP.get(piece.piece_type, None)
+            visited.add((row, col))
             color_key = 'white' if piece.color == chess.WHITE else 'black'
-            symbol = ui_pieces.get(piece_name, color_key)
-            ui_board.set_piece(row, col, (symbol, color_key))
+            symbol = sym_map[piece.piece_type][0 if piece.color == chess.BLACK else 1]
+            desired_piece = (symbol, color_key)
+            # only update when different to avoid unnecessary redraw work
+            if ui_grid[row][col] != desired_piece:
+                set_piece(row, col, desired_piece)
+
+        # clear any UI squares that are not part of current board state
+        for r in range(rows):
+            for c in range(cols):
+                if ui_grid[r][c] is not None and (r, c) not in visited:
+                    set_piece(r, c, None)
 
     def print_terminal(self):
-        print(self.board)
-        if self.board.is_checkmate():
-            print("Game Over: checkmate; result:", self.board.result())
-        elif self.board.is_stalemate():
-            print("Game Over: stalemate; result:", self.board.result())
-        elif self.board.is_insufficient_material():
-            print("Game Over: insufficient material; result:", self.board.result())
-        elif self.board.is_seventyfive_moves() or self.board.is_fivefold_repetition():
-            print("Game Over: draw by rule; result:", self.board.result())
-        else:
-            if self.board.is_check():
-                print("Check to", "white" if self.board.turn == chess.WHITE else "black")
+        # Delegate terminal printing to algorithms.main.print_terminal for consistent formatting
+        alg_main.print_terminal(self.board, getattr(self, 'last_move_san', None))
