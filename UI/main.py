@@ -177,6 +177,10 @@ def main():
 					resign_rect = pygame.Rect(window_w - panel_w - panel_margin, panel_margin * 2 + (window_h - (panel_margin * 3) - resign_button_h - 60), resign_button_w, resign_button_h)
 					if resign_rect.collidepoint((x, y)) and not is_game_over_ui():
 						game_over_reason = "Game Over - Resignation"
+						# print board/state to terminal when player resigns
+						controller.print_terminal()
+						# show resignation result in the same format as print_terminal
+						print("Result: Resigned — 0-1")
 					if is_game_over_ui():
 						button_rect = pygame.Rect(window_w // 2 - 70, window_h // 2 + 10, 140, 40)
 						if button_rect.collidepoint((x, y)):
