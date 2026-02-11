@@ -1,5 +1,3 @@
-import chess
-
 def order_moves(board, moves):
     def score(move):
         s = 0
