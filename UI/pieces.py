@@ -7,12 +7,12 @@ the requested piece or color isn't found.
 """
 
 PIECES = {
-    'king': {'black': '♔', 'white': '♚'},
-    'queen': {'black': '♕', 'white': '♛'},
-    'rook': {'black': '♖', 'white': '♜'},
-    'bishop': {'black': '♗', 'white': '♝'},
-    'knight': {'black': '♘', 'white': '♞'},
-    'pawn': {'black': '♙', 'white': '♟'},
+    'king': {'white': '♔', 'black': '♚'},
+    'queen': {'white': '♕', 'black': '♛'},
+    'rook': {'white': '♖', 'black': '♜'},
+    'bishop': {'white': '♗', 'black': '♝'},
+    'knight': {'white': '♘', 'black': '♞'},
+    'pawn': {'white': '♙', 'black': '♟'},
 }
 
 

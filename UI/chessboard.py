@@ -7,13 +7,7 @@ Color = Tuple[int, int, int]
 
 
 def _get_font(size: int) -> pygame.font.Font:
-	"""Return a pygame Font capable of rendering chess Unicode glyphs.
-
-	Tries `values.FONT_NAME` first (if set), then a few common Unicode fonts.
-	Falls back to the default pygame font if none found.
-	"""
-	# Only use the configured FONT_NAME (user-specified). If not available,
-	# fall back to the default pygame font.
+	"""Return a pygame Font capable of rendering chess Unicode glyphs."""
 	if values.FONT_NAME:
 		try:
 			path = pygame.font.match_font(values.FONT_NAME)
@@ -21,19 +15,38 @@ def _get_font(size: int) -> pygame.font.Font:
 				return pygame.font.Font(path, size)
 		except Exception:
 			pass
-
 	return pygame.font.SysFont(None, size)
 
 
+def _render_outlined_text(font: pygame.font.Font, text: str, fill_color, outline_color, outline_px: int = 1) -> pygame.Surface:
+	"""Render text with a thin crisp outline for clean piece display."""
+	base = font.render(text, True, fill_color)
+	w, h = base.get_size()
+	pad = outline_px * 2
+	surf = pygame.Surface((w + pad, h + pad), pygame.SRCALPHA)
+	# draw outline by blitting in 8 directions (single step for thin edge)
+	outline_surf = font.render(text, True, outline_color)
+	offsets = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
+	for ox, oy in offsets:
+		surf.blit(outline_surf, (outline_px + ox * outline_px, outline_px + oy * outline_px))
+	# draw fill on top
+	surf.blit(base, (outline_px, outline_px))
+	return surf
+
+
+def draw_rounded_rect(surface: pygame.Surface, color, rect: pygame.Rect, radius: int, border: int = 0, border_color=None):
+	"""Draw a rounded rectangle. If border > 0, draw only the border."""
+	if border == 0:
+		# filled
+		pygame.draw.rect(surface, color, rect, border_radius=radius)
+	else:
+		pygame.draw.rect(surface, color, rect, border_radius=radius)
+		if border_color:
+			pygame.draw.rect(surface, border_color, rect, border, border_radius=radius)
+
+
 class ChessBoard:
-	"""A drawable, resizable chessboard model.
-
-	Responsibilities:
-	- Maintain a simple `board` matrix storing pieces (or None).
-	- Draw the board, pieces and coordinate labels to a `pygame.Surface`.
-
-	The class keeps no pygame state; it accepts a Surface to draw onto.
-	"""
+	"""A drawable, resizable chessboard model."""
 
 	def __init__(
 		self,
@@ -51,16 +64,9 @@ class ChessBoard:
 		self.light_color = light_color
 		self.dark_color = dark_color
 
-		# board matrix storing either None, a symbol string, or (symbol, color_key)
 		self.board: List[List[Optional[str]]] = [[None for _ in range(cols)] for _ in range(rows)]
-
-		# optional highlighted square (row, col)
 		self.highlight: Optional[Tuple[int, int]] = None
-
-		# king in check position
 		self.king_in_check: Optional[Tuple[int, int]] = None
-
-		# possible moves to highlight
 		self.possible_moves: List[Tuple[int, int]] = []
 
 	@property
@@ -75,6 +81,10 @@ class ChessBoard:
 		tx, ty = top_left
 		coord_font = _get_font(max(12, self.square_size // 4))
 
+		# board background with subtle rounded border
+		board_rect = pygame.Rect(tx, ty, self.width, self.height)
+		pygame.draw.rect(surface, (24, 24, 28), board_rect, border_radius=6)
+
 		# draw squares
 		for r in range(self.rows):
 			for c in range(self.cols):
@@ -87,7 +97,7 @@ class ChessBoard:
 				color = self.light_color if (r + c) % 2 == 0 else self.dark_color
 				pygame.draw.rect(surface, color, rect)
 
-		# highlight square (drawn above squares)
+		# highlight square
 		if self.highlight is not None:
 			rh, ch = self.highlight
 			rect = pygame.Rect(
@@ -122,33 +132,49 @@ class ChessBoard:
 
 		# highlight possible moves
 		for rm, cm in self.possible_moves:
-			rect = pygame.Rect(
-				tx + self.margin + cm * self.square_size,
-				ty + self.margin + rm * self.square_size,
-				self.square_size,
-				self.square_size,
-			)
-			center_x = rect.centerx
-			center_y = rect.centery
-			radius = self.square_size // 6
-			pygame.draw.circle(surface, values.MOVE_DOT_COLOR, (center_x, center_y), radius)
+			cx = tx + self.margin + cm * self.square_size + self.square_size // 2
+			cy = ty + self.margin + rm * self.square_size + self.square_size // 2
+			# check if target square has a piece (capture indicator: ring)
+			target_piece = self.board[rm][cm]
+			if target_piece:
+				radius = self.square_size // 2 - 3
+				s = pygame.Surface((self.square_size, self.square_size), pygame.SRCALPHA)
+				pygame.draw.circle(s, (100, 160, 80, 100), (self.square_size // 2, self.square_size // 2), radius, 4)
+				sx = tx + self.margin + cm * self.square_size
+				sy = ty + self.margin + rm * self.square_size
+				surface.blit(s, (sx, sy))
+			else:
+				dot_surf = pygame.Surface((self.square_size, self.square_size), pygame.SRCALPHA)
+				radius = self.square_size // 6
+				pygame.draw.circle(dot_surf, values.MOVE_DOT_COLOR, (self.square_size // 2, self.square_size // 2), radius)
+				sx = tx + self.margin + cm * self.square_size
+				sy = ty + self.margin + rm * self.square_size
+				surface.blit(dot_surf, (sx, sy))
 
-		# draw pieces
-		piece_font = _get_font(max(12, int(self.square_size * 0.9)))
+		# draw pieces with outlines and drop shadows
+		piece_font_size = max(12, int(self.square_size * 0.82))
+		piece_font = _get_font(piece_font_size)
+		outline_px = getattr(values, 'PIECE_OUTLINE_PX', 2)
 		for r in range(self.rows):
 			for c in range(self.cols):
 				piece = self.board[r][c]
 				if not piece:
 					continue
-				# piece stored as symbol or (symbol, color_key)
 				if isinstance(piece, (list, tuple)):
 					symbol, color_key = piece[0], piece[1]
 				else:
 					symbol, color_key = piece, None
-				render_color = values.PIECE_COLORS.get(color_key, values.PIECE_COLOR)
-				text = piece_font.render(str(symbol), True, render_color)
+				fill_color = values.PIECE_COLORS.get(color_key, values.PIECE_COLOR)
+				outline_color = values.PIECE_OUTLINE_COLORS.get(color_key, (128, 128, 128))
+				text = _render_outlined_text(piece_font, str(symbol), fill_color, outline_color, outline_px=outline_px)
 				px = tx + self.margin + c * self.square_size + self.square_size // 2 - text.get_width() // 2
 				py = ty + self.margin + r * self.square_size + self.square_size // 2 - text.get_height() // 2
+				# soft drop shadow for depth
+				shadow_surf = piece_font.render(str(symbol), True, (0, 0, 0))
+				shadow_alpha = pygame.Surface(shadow_surf.get_size(), pygame.SRCALPHA)
+				shadow_alpha.blit(shadow_surf, (0, 0))
+				shadow_alpha.set_alpha(70)
+				surface.blit(shadow_alpha, (px + 2, py + 2))
 				surface.blit(text, (px, py))
 
 		# draw coordinate labels
@@ -167,13 +193,7 @@ class ChessBoard:
 			surface.blit(text, (rx, ry))
 
 	def set_piece(self, row: int, col: int, piece: Optional[str]) -> None:
-		"""Set a piece at (row,col).
-
-		`piece` may be either:
-		- None to clear the square
-		- a symbol string (e.g. '♔')
-		- a tuple/list (symbol, color_key) where color_key is 'white' or 'black'
-		"""
+		"""Set a piece at (row,col)."""
 		if 0 <= row < self.rows and 0 <= col < self.cols:
 			self.board[row][col] = piece
 
@@ -197,4 +217,3 @@ def create_chessboard(rows: int = values.ROWS, cols: int = values.COLS, square_s
 					  light_color: Color = values.LIGHT_COLOR, dark_color: Color = values.DARK_COLOR) -> ChessBoard:
 	return ChessBoard(rows=rows, cols=cols, square_size=square_size, margin=margin,
 					  light_color=light_color, dark_color=dark_color)
-
