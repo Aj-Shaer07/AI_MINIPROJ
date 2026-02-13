@@ -44,6 +44,9 @@ def main():
 	resign_button_h = 40
 	resign_button_w = panel_w
 	game_over_reason = None
+	white_time_ms = 0
+	black_time_ms = 0
+	turn_start_ticks = pygame.time.get_ticks()
 
 	def reset_game() -> None:
 		controller.board = chess.Board()
@@ -54,6 +57,17 @@ def main():
 		move_history.clear()
 		nonlocal game_over_reason
 		game_over_reason = None
+		nonlocal white_time_ms, black_time_ms, turn_start_ticks
+		white_time_ms = 0
+		black_time_ms = 0
+		turn_start_ticks = pygame.time.get_ticks()
+		nonlocal dragging, pending_drag, drag_piece, drag_from, selected_square, engine_pending
+		dragging = False
+		pending_drag = False
+		drag_piece = None
+		drag_from = None
+		selected_square = None
+		engine_pending = False
 
 	def add_move(color_label: str, move: chess.Move, board_ref: chess.Board) -> None:
 		uci = move.uci() if move else ""
@@ -87,11 +101,73 @@ def main():
 	def is_game_over_ui() -> bool:
 		return controller.board.is_game_over() or game_over_reason is not None
 
-	# drag state
+	def fmt_time(total_ms: int) -> str:
+		total_sec = max(0, total_ms // 1000)
+		minutes = total_sec // 60
+		seconds = total_sec % 60
+		return f"{minutes:02d}:{seconds:02d}"
+
+	def captured_symbols(board_ref: chess.Board) -> tuple:
+		initial = {
+			chess.WHITE: {
+				chess.PAWN: 8,
+				chess.KNIGHT: 2,
+				chess.BISHOP: 2,
+				chess.ROOK: 2,
+				chess.QUEEN: 1,
+			},
+			chess.BLACK: {
+				chess.PAWN: 8,
+				chess.KNIGHT: 2,
+				chess.BISHOP: 2,
+				chess.ROOK: 2,
+				chess.QUEEN: 1,
+			},
+		}
+		current = {
+			chess.WHITE: {k: 0 for k in initial[chess.WHITE].keys()},
+			chess.BLACK: {k: 0 for k in initial[chess.BLACK].keys()},
+		}
+		for piece in board_ref.piece_map().values():
+			if piece.piece_type in current[piece.color]:
+				current[piece.color][piece.piece_type] += 1
+		order = [chess.QUEEN, chess.ROOK, chess.BISHOP, chess.KNIGHT, chess.PAWN]
+		label_map = {
+			chess.QUEEN: "Q",
+			chess.ROOK: "R",
+			chess.BISHOP: "B",
+			chess.KNIGHT: "N",
+			chess.PAWN: "P",
+		}
+		white_captured = []
+		black_captured = []
+		for ptype in order:
+			missing_black = initial[chess.BLACK][ptype] - current[chess.BLACK][ptype]
+			missing_white = initial[chess.WHITE][ptype] - current[chess.WHITE][ptype]
+			if missing_black > 0:
+				symbol = values.PIECE_SYMBOL_MAP[ptype][0]
+				label = label_map[ptype]
+				white_captured.append(f"{label}x{missing_black}")
+				white_captured.append(symbol * missing_black)
+			if missing_white > 0:
+				symbol = values.PIECE_SYMBOL_MAP[ptype][1]
+				label = label_map[ptype]
+				black_captured.append(f"{label}x{missing_white}")
+				black_captured.append(symbol * missing_white)
+		white_text = " ".join(white_captured) if white_captured else "None"
+		black_text = " ".join(black_captured) if black_captured else "None"
+		return white_text, black_text
+
+	# drag / select state
 	dragging = False
+	pending_drag = False
 	drag_piece = None
 	drag_from = None
+	drag_start_pos = (0, 0)
 	mouse_pos = (0, 0)
+	selected_square = None
+	engine_pending = False
+	drag_threshold = 6
 
 	window_w = args.window_width
 	window_h = args.window_height
@@ -119,31 +195,68 @@ def main():
 				if sq:
 					r, c = sq
 					piece = board.board[r][c]
+					if selected_square and (r, c) in board.possible_moves:
+						ok, move = controller.try_player_move(selected_square[0], selected_square[1], r, c)
+						if ok:
+							now = pygame.time.get_ticks()
+							white_time_ms += now - turn_start_ticks
+							turn_start_ticks = now
+							controller.print_terminal()
+							controller.sync_to_ui(board)
+							add_move("White", move, controller.board)
+							engine_pending = True
+						selected_square = None
+						board.highlight = None
+						board.possible_moves = []
+						pending_drag = False
+						dragging = False
+						drag_piece = None
+						drag_from = None
+						continue
+					# handle selecting a piece
 					if piece:
-						# allow dragging only for player's pieces (white)
 						color_key = piece[1] if isinstance(piece, (list, tuple)) and len(piece) > 1 else None
 						if controller.board.turn == chess.WHITE and color_key == 'white':
-							dragging = True
-							drag_piece = piece
-							drag_from = (r, c)
-							board.set_piece(r, c, None)
-							# show possible moves
-							moves = controller.get_moves_for_square(r, c)
-							board.possible_moves = moves
-						else:
-							# toggle highlight for non-draggable squares
-							if board.highlight == (r, c):
+							# toggle selection
+							if selected_square == (r, c):
+								selected_square = None
 								board.highlight = None
+								board.possible_moves = []
+								pending_drag = False
+								drag_piece = None
+								drag_from = None
 							else:
+								selected_square = (r, c)
 								board.highlight = (r, c)
-					else:
-						if board.highlight == (r, c):
-							board.highlight = None
+								board.possible_moves = controller.get_moves_for_square(r, c)
+								pending_drag = True
+								drag_piece = piece
+								drag_from = (r, c)
+								drag_start_pos = (x, y)
 						else:
+							selected_square = None
 							board.highlight = (r, c)
+							board.possible_moves = []
+							pending_drag = False
+							drag_piece = None
+							drag_from = None
+					else:
+						selected_square = None
+						board.highlight = None
+						board.possible_moves = []
+						pending_drag = False
+						drag_piece = None
+						drag_from = None
 			elif event.type == pygame.MOUSEMOTION:
 				x, y = event.pos
 				mouse_pos = (x, y)
+				if pending_drag and not dragging:
+					dx = x - drag_start_pos[0]
+					dy = y - drag_start_pos[1]
+					if (dx * dx + dy * dy) >= (drag_threshold * drag_threshold):
+						dragging = True
+						pending_drag = False
+						board.set_piece(drag_from[0], drag_from[1], None)
 			elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
 				x, y = event.pos
 				if dragging:
@@ -152,29 +265,34 @@ def main():
 						r2, c2 = sq
 						ok, move = controller.try_player_move(drag_from[0], drag_from[1], r2, c2)
 						if ok:
+							now = pygame.time.get_ticks()
+							white_time_ms += now - turn_start_ticks
+							turn_start_ticks = now
 							# player move accepted
 							controller.print_terminal()
 							controller.sync_to_ui(board)
 							add_move("White", move, controller.board)
-							# engine move (if any)
-							if not controller.board.is_game_over() and controller.board.turn == (not controller.engine_is_black):
-								eng_move = controller.engine_move()
-								if eng_move:
-									print(f"[ENGINE] plays: {eng_move}")
-									controller.print_terminal()
-									controller.sync_to_ui(board)
-									add_move("Black (Engine)", eng_move, controller.board)
+							engine_pending = True
 						else:
 							# invalid move; restore piece
 							board.set_piece(drag_from[0], drag_from[1], drag_piece)
 					else:
 						board.set_piece(drag_from[0], drag_from[1], drag_piece)
 					dragging = False
+					pending_drag = False
 					drag_piece = None
 					drag_from = None
 					board.possible_moves = []
+					board.highlight = None
+					selected_square = None
 				else:
-					resign_rect = pygame.Rect(window_w - panel_w - panel_margin, panel_margin * 2 + (window_h - (panel_margin * 3) - resign_button_h - 60), resign_button_w, resign_button_h)
+					pending_drag = False
+					resign_rect = pygame.Rect(
+						window_w - panel_w - panel_margin,
+						top_left_y + board.height + panel_margin,
+						resign_button_w,
+						resign_button_h,
+					)
 					if resign_rect.collidepoint((x, y)) and not is_game_over_ui():
 						game_over_reason = "Game Over - Resignation"
 						# print board/state to terminal when player resigns
@@ -205,19 +323,23 @@ def main():
 					top_left_x = max(panel_margin, (available_w - board.width) // 2 + panel_margin)
 					top_left_y = max(panel_margin, (window_h - board.height) // 2)
 					top_left = (top_left_x, top_left_y)
+					white_time_ms = 0
+					black_time_ms = 0
+					turn_start_ticks = pygame.time.get_ticks()
 
 		if controller.board.is_game_over() and game_over_reason is None:
 			game_over_reason = game_over_text()
 
+
 		screen.fill(values.BG_COLOR)
 		board.draw(screen, top_left=top_left)
 
-		# move log panel
+		# move log panel (match board height)
 		panel_rect = pygame.Rect(
 			window_w - panel_w - panel_margin,
-			panel_margin,
+			top_left_y,
 			panel_w,
-			window_h - (panel_margin * 3) - resign_button_h - 60,
+			board.height,
 		)
 		pygame.draw.rect(screen, values.PANEL_BG_COLOR, panel_rect)
 		pygame.draw.rect(screen, values.PANEL_BORDER_COLOR, panel_rect, 2)
@@ -225,7 +347,32 @@ def main():
 		item_font = chessboard._get_font(16)
 		title_text = title_font.render("History", True, values.PANEL_TITLE_COLOR)
 		screen.blit(title_text, (panel_rect.x + 10, panel_rect.y + 10))
-		line_y = panel_rect.y + 40
+		# timer block
+		now_ticks = pygame.time.get_ticks()
+		if not is_game_over_ui():
+			if controller.board.turn == chess.WHITE:
+				white_display = white_time_ms + (now_ticks - turn_start_ticks)
+				black_display = black_time_ms
+			else:
+				white_display = white_time_ms
+				black_display = black_time_ms + (now_ticks - turn_start_ticks)
+		else:
+			white_display = white_time_ms
+			black_display = black_time_ms
+		timer_font = chessboard._get_font(16)
+		white_text = timer_font.render(f"White: {fmt_time(white_display)}", True, values.PANEL_TEXT_COLOR)
+		black_text = timer_font.render(f"Black: {fmt_time(black_display)}", True, values.PANEL_TEXT_COLOR)
+		screen.blit(white_text, (panel_rect.x + 10, panel_rect.y + 40))
+		screen.blit(black_text, (panel_rect.x + 10, panel_rect.y + 60))
+
+		white_caps, black_caps = captured_symbols(controller.board)
+		caps_font = chessboard._get_font(16)
+		white_caps_text = caps_font.render(f"Captured by White: {white_caps}", True, values.PANEL_TEXT_COLOR)
+		black_caps_text = caps_font.render(f"Captured by Black: {black_caps}", True, values.PANEL_TEXT_COLOR)
+		screen.blit(white_caps_text, (panel_rect.x + 10, panel_rect.y + 85))
+		screen.blit(black_caps_text, (panel_rect.x + 10, panel_rect.y + 105))
+
+		line_y = panel_rect.y + 135
 		line_height = item_font.get_height() + 4
 		max_lines = max(1, (panel_rect.height - 50) // line_height)
 		recent_moves = move_history[-max_lines:]
@@ -262,9 +409,19 @@ def main():
 			pygame.draw.rect(screen, (40, 40, 40), popup_rect)
 			pygame.draw.rect(screen, (120, 120, 120), popup_rect, 2)
 			font = chessboard._get_font(28)
-			reason = game_over_reason if game_over_reason else "Game Over"
+			if controller.board.is_checkmate():
+				winner = "White" if controller.board.turn == chess.BLACK else "Black"
+				reason = "Checkmate"
+				winner_line = f"Winner: {winner}"
+			else:
+				reason = game_over_reason if game_over_reason else "Game Over"
+				winner_line = None
 			text = font.render(reason, True, (255, 255, 255))
 			screen.blit(text, (popup_rect.centerx - text.get_width() // 2, popup_rect.y + 30))
+			if winner_line:
+				winner_font = chessboard._get_font(22)
+				winner_text = winner_font.render(winner_line, True, (255, 255, 255))
+				screen.blit(winner_text, (popup_rect.centerx - winner_text.get_width() // 2, popup_rect.y + 70))
 			button_rect = pygame.Rect(popup_rect.centerx - 70, popup_rect.y + 110, 140, 40)
 			pygame.draw.rect(screen, (170, 170, 170), button_rect)
 			pygame.draw.rect(screen, (0, 0, 0), button_rect, 2)
@@ -280,7 +437,37 @@ def main():
 			text = piece_font.render(str(symbol), True, render_color)
 			x, y = mouse_pos
 			screen.blit(text, (x - text.get_width() // 2, y - text.get_height() // 2))
+
+		# status bar
+		status_font = chessboard._get_font(18)
+		if controller.board.is_checkmate() or game_over_reason:
+			if controller.board.is_checkmate():
+				winner = "White" if controller.board.turn == chess.BLACK else "Black"
+				status_text = f"Winner: {winner}"
+			else:
+				status_text = game_over_reason if game_over_reason else "Game Over"
+		else:
+			turn_label = "White" if controller.board.turn == chess.WHITE else "Black"
+			status_text = f"Turn: {turn_label}"
+		status_surface = status_font.render(status_text, True, values.PANEL_TEXT_COLOR)
+		status_y = min(window_h - status_surface.get_height() - 8, top_left_y + board.height + 8)
+		screen.blit(status_surface, (top_left_x, status_y))
 		pygame.display.flip()
+
+		if engine_pending and is_game_over_ui():
+			engine_pending = False
+
+		if engine_pending and not is_game_over_ui() and controller.board.turn == (not controller.engine_is_black):
+			eng_move = controller.engine_move()
+			now = pygame.time.get_ticks()
+			black_time_ms += now - turn_start_ticks
+			turn_start_ticks = now
+			if eng_move:
+				print(f"[ENGINE] plays: {eng_move}")
+				controller.print_terminal()
+				controller.sync_to_ui(board)
+				add_move("Black (Engine)", eng_move, controller.board)
+			engine_pending = False
 		clock.tick(60)
 
 	pygame.quit()
