@@ -12,10 +12,10 @@ def order_moves(board, moves):
         if move.promotion:
             s += 900
 
-        # Checks
+        # Checks (lowered weight to avoid useless forcing moves)
         board.push(move)
         if board.is_check():
-            s += 50
+            s += 8
         board.pop()
 
         return s
