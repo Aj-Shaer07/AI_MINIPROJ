@@ -69,6 +69,20 @@ class GameController:
 
         return False, None
 
+    def get_moves_for_square(self, r: int, c: int) -> list:
+        sq_name = self.coords_to_square_name(r, c)
+        sq = chess.parse_square(sq_name)
+        moves = [move for move in self.board.legal_moves if move.from_square == sq]
+        coords = []
+        for move in moves:
+            to_sq = move.to_square
+            file_idx = chess.square_file(to_sq)
+            rank_idx = chess.square_rank(to_sq)
+            row = 8 - 1 - rank_idx
+            col = file_idx
+            coords.append((row, col))
+        return coords
+
     def engine_move(self):
         if self.board.is_game_over():
             return None
@@ -116,6 +130,19 @@ class GameController:
             for c in range(cols):
                 if ui_grid[r][c] is not None and (r, c) not in visited:
                     set_piece(r, c, None)
+
+        # set king in check
+        if self.board.is_check():
+            king_sq = self.board.king(self.board.turn)
+            file_idx = chess.square_file(king_sq)
+            rank_idx = chess.square_rank(king_sq)
+            row = rows - 1 - rank_idx
+            col = file_idx
+            ui_board.king_in_check = (row, col)
+        else:
+            ui_board.king_in_check = None
+
+        ui_board.possible_moves = []
 
     def print_terminal(self):
         # Delegate terminal printing to algorithms.main.print_terminal for consistent formatting

@@ -57,6 +57,12 @@ class ChessBoard:
 		# optional highlighted square (row, col)
 		self.highlight: Optional[Tuple[int, int]] = None
 
+		# king in check position
+		self.king_in_check: Optional[Tuple[int, int]] = None
+
+		# possible moves to highlight
+		self.possible_moves: List[Tuple[int, int]] = []
+
 	@property
 	def width(self) -> int:
 		return self.cols * self.square_size + 2 * self.margin
@@ -94,8 +100,41 @@ class ChessBoard:
 			s.fill(values.HIGHLIGHT_COLOR)
 			surface.blit(s, rect.topleft)
 
+		# highlight king in check
+		if self.king_in_check is not None:
+			rk, ck = self.king_in_check
+			rect = pygame.Rect(
+				tx + self.margin + ck * self.square_size,
+				ty + self.margin + rk * self.square_size,
+				self.square_size,
+				self.square_size,
+			)
+			glow = pygame.Surface((self.square_size, self.square_size), pygame.SRCALPHA)
+			center = (self.square_size // 2, self.square_size // 2)
+			max_radius = self.square_size // 2
+			steps = 6
+			for i in range(steps, 0, -1):
+				radius = max_radius * i // steps
+				alpha = int(180 * (steps - i + 1) / steps)
+				glow_color = (*values.CHECK_GLOW_COLOR, alpha)
+				pygame.draw.circle(glow, glow_color, center, radius)
+			surface.blit(glow, rect.topleft)
+
+		# highlight possible moves
+		for rm, cm in self.possible_moves:
+			rect = pygame.Rect(
+				tx + self.margin + cm * self.square_size,
+				ty + self.margin + rm * self.square_size,
+				self.square_size,
+				self.square_size,
+			)
+			center_x = rect.centerx
+			center_y = rect.centery
+			radius = self.square_size // 6
+			pygame.draw.circle(surface, values.MOVE_DOT_COLOR, (center_x, center_y), radius)
+
 		# draw pieces
-		piece_font = _get_font(max(12, int(self.square_size * 0.8)))
+		piece_font = _get_font(max(12, int(self.square_size * 0.9)))
 		for r in range(self.rows):
 			for c in range(self.cols):
 				piece = self.board[r][c]

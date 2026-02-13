@@ -1,10 +1,10 @@
 from evaluation import evaluate, MATE_SCORE
 from move_generation import generate_legal_moves
 from move_ordering import order_moves
-from transposition import lookup, store
+from transposition import lookup, probe_move, store
 
-REPETITION_PENALTY = 20
-CHECK_EXTENSION = 1   # allow ONE check extension only
+REPETITION_PENALTY = 80          # 🔧 increased (was 20)
+MAX_CHECK_EXTENSIONS = 1         # 🔧 new
 
 
 # -------------------------------------------------
@@ -27,10 +27,13 @@ def quiescence(board, alpha, beta, ply, maximizing):
             return alpha
         beta = min(beta, stand_pat)
 
-    for move in board.legal_moves:
-        if not board.is_capture(move):
-            continue
+    # CRITICAL FIX
+    if board.is_check():
+        moves = board.legal_moves  # ALL replies to check
+    else:
+        moves = (m for m in board.legal_moves if board.is_capture(m))
 
+    for move in moves:
         board.push(move)
         score = quiescence(board, alpha, beta, ply + 1, not maximizing)
         board.pop()
@@ -47,45 +50,57 @@ def quiescence(board, alpha, beta, ply, maximizing):
     return alpha if maximizing else beta
 
 
-# -------------------------------------------------
-# MINIMAX + ALPHA-BETA WITH VARIABLE DEPTH
-# -------------------------------------------------
-def minimax(board, depth, alpha, beta, maximizing, ply,
-            ext_left, depth_counter):
-    # Track deepest ply reached
-    depth_counter[0] = max(depth_counter[0], ply)
 
-    cached = lookup(board, depth)
+# -------------------------------------------------
+# MINIMAX + ALPHA-BETA (STABLE)
+# -------------------------------------------------
+def minimax(board, depth, alpha, beta, maximizing, ply=0, check_ext_used=0):
+    cached = lookup(board, depth, alpha, beta)
     if cached:
         return cached
 
+    original_alpha, original_beta = alpha, beta
+
+    # 🔧 repetition control
     if board.is_repetition(2):
         penalty = -REPETITION_PENALTY if maximizing else REPETITION_PENALTY
         return penalty, None
 
+    # 🔧 FORCE mate-in-1 defense (CRITICAL FIX)
+    for move in board.legal_moves:
+        board.push(move)
+        if board.is_checkmate():
+            board.pop()
+            return (MATE_SCORE - ply if maximizing else -MATE_SCORE + ply), move
+        board.pop()
+
     if board.is_game_over():
         return evaluate(board, ply), None
 
+    # Leaf
     if depth == 0:
         if board.is_check():
             return quiescence(board, alpha, beta, ply, maximizing), None
         return evaluate(board, ply), None
 
     best_move = None
+    tt_move = probe_move(board)
     moves = order_moves(board, generate_legal_moves(board))
+    if tt_move:
+        moves = [tt_move] + [m for m in moves if m != tt_move]
 
     if maximizing:
         best_value = -float('inf')
         for move in moves:
             board.push(move)
 
-            # -------- VARIABLE DEPTH (CHECK EXTENSION) --------
             new_depth = depth - 1
-            new_ext = ext_left
-            if board.is_check() and ext_left > 0:
-                new_depth = depth     # extend
-                new_ext -= 1
-            # -------------------------------------------------
+            new_ext = check_ext_used
+
+            # 🔧 LIMITED check extension (max 1 per line)
+            if board.is_check() and check_ext_used < MAX_CHECK_EXTENSIONS:
+                new_depth = depth
+                new_ext += 1
 
             value, _ = minimax(
                 board,
@@ -94,8 +109,7 @@ def minimax(board, depth, alpha, beta, maximizing, ply,
                 beta,
                 False,
                 ply + 1,
-                new_ext,
-                depth_counter
+                new_ext
             )
 
             board.pop()
@@ -113,10 +127,11 @@ def minimax(board, depth, alpha, beta, maximizing, ply,
             board.push(move)
 
             new_depth = depth - 1
-            new_ext = ext_left
-            if board.is_check() and ext_left > 0:
+            new_ext = check_ext_used
+
+            if board.is_check() and check_ext_used < MAX_CHECK_EXTENSIONS:
                 new_depth = depth
-                new_ext -= 1
+                new_ext += 1
 
             value, _ = minimax(
                 board,
@@ -125,8 +140,7 @@ def minimax(board, depth, alpha, beta, maximizing, ply,
                 beta,
                 True,
                 ply + 1,
-                new_ext,
-                depth_counter
+                new_ext
             )
 
             board.pop()
@@ -139,20 +153,18 @@ def minimax(board, depth, alpha, beta, maximizing, ply,
             if beta <= alpha:
                 break
 
-    store(board, depth, best_value, best_move)
+    store(board, depth, best_value, best_move, original_alpha, original_beta)
     return best_value, best_move
 
 
 # -------------------------------------------------
-# ITERATIVE DEEPENING (PRINT DEPTH USED)
+# ITERATIVE DEEPENING
 # -------------------------------------------------
 def iterative_deepening(board, max_depth, engine_is_black=True):
     best_move = None
-    best_depth_reached = 0
+    best_depth = 0
 
     for depth in range(1, max_depth + 1):
-        depth_counter = [0]
-
         value, move = minimax(
             board,
             depth,
@@ -160,13 +172,12 @@ def iterative_deepening(board, max_depth, engine_is_black=True):
             1e9,
             maximizing=not engine_is_black,
             ply=0,
-            ext_left=CHECK_EXTENSION,
-            depth_counter=depth_counter
+            check_ext_used=0
         )
-
         if move is not None:
             best_move = move
-            best_depth_reached = depth_counter[0]
+            best_depth = depth
 
-    print(f"[ENGINE] Move searched up to ply depth: {best_depth_reached}")
+    print(f"[ENGINE] Move searched up to ply depth: {best_depth}")
     return best_move
+
