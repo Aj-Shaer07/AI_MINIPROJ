@@ -7,9 +7,15 @@ Provide helpers for loading SVG assets with optional styling and caching.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, List
 
 import pygame
+
+# Caches to avoid repeated expensive font lookups
+# font_name -> resolved font path (or None if not found)
+_font_match_cache: Dict[str, Optional[str]] = {}
+# (symbol, size) -> selected font name (or None)
+_symbol_font_cache: Dict[Tuple[str, int], Optional[str]] = {}
 
 PIECES = {
     'king': {'white': '♔', 'black': '♚'},
@@ -110,3 +116,63 @@ def get_piece_surface_for_symbol(symbol: Optional[str], size_px: int):
     name = name_from_symbol(str(symbol))
     color = color_from_symbol(str(symbol))
     return get_piece_surface(name, color, size_px)
+
+
+def _is_symbol_renderable_with_font(symbol: str, font_name: str, size: int = 32) -> bool:
+    """Check whether `font_name` can render `symbol` using pygame.
+
+    Returns True when the font is available and rendering the symbol
+    produces a non-empty surface. This is a best-effort helper used by
+    UI code to pick a font that actually contains the chess glyphs on
+    the running system (useful on macOS where font fallback can vary).
+    """
+    try:
+        pygame.font.init()
+        # Use a simple cache for match_font results so we don't repeatedly
+        # probe the system font registry which can be slow on some OSes.
+        if font_name in _font_match_cache:
+            font_path = _font_match_cache[font_name]
+        else:
+            font_path = pygame.font.match_font(font_name)
+            _font_match_cache[font_name] = font_path
+        if not font_path:
+            return False
+        font = pygame.font.Font(font_path, size)
+        surf = font.render(symbol, True, (0, 0, 0))
+        return surf.get_width() > 0 and surf.get_height() > 0
+    except Exception:
+        return False
+
+
+def get_font_for_symbol(symbol: str, preferred_fonts: Optional[List[str]] = None, size: int = 32) -> Optional[str]:
+    """Return the first preferred font name that can render `symbol`.
+
+    - `preferred_fonts` is an ordered list of font family names to try.
+      If omitted, a sensible set of common fonts will be attempted.
+    - Returns the font family name (as passed) on success, otherwise None.
+
+    Note: callers should use the returned font name with `pygame.font.match_font`
+    or their own font API to obtain a usable font object/path.
+    """
+    if not symbol:
+        return None
+    # fast-path: cached result for this symbol+size
+    cache_key = (symbol, size)
+    if cache_key in _symbol_font_cache:
+        return _symbol_font_cache[cache_key]
+    defaults = [
+        "Apple Symbols",
+        "Symbola",
+        "Symbola",
+        "DejaVu Sans",
+        "DejaVuSans",
+        "Arial Unicode MS",
+        "Apple Color Emoji",
+    ]
+    fonts_to_try = preferred_fonts or defaults
+    for fname in fonts_to_try:
+        if _is_symbol_renderable_with_font(symbol, fname, size=size):
+            _symbol_font_cache[cache_key] = fname
+            return fname
+    _symbol_font_cache[cache_key] = None
+    return None

@@ -7,8 +7,25 @@ import pieces
 Color = Tuple[int, int, int]
 
 
-def _get_font(size: int) -> pygame.font.Font:
-	"""Return a pygame Font capable of rendering chess Unicode glyphs."""
+def _get_font(size: int, symbol: Optional[str] = None) -> pygame.font.Font:
+	"""Return a pygame Font.
+
+	If `symbol` is provided, prefer a font that can render that symbol
+	(using `pieces.get_font_for_symbol`) so chess glyphs don't become tofu
+	on platforms (notably macOS). Falls back to `values.FONT_NAME` then
+	`pygame.font.SysFont`.
+	"""
+	# Try explicit symbol-capable font first
+	if symbol:
+		try:
+			font_name = pieces.get_font_for_symbol(symbol, size=size)
+			if font_name:
+				path = pygame.font.match_font(font_name)
+				if path:
+					return pygame.font.Font(path, size)
+		except Exception:
+			pass
+	# Next try configured font name
 	if values.FONT_NAME:
 		try:
 			path = pygame.font.match_font(values.FONT_NAME)
@@ -16,6 +33,7 @@ def _get_font(size: int) -> pygame.font.Font:
 				return pygame.font.Font(path, size)
 		except Exception:
 			pass
+	# Fallback to a generic system font
 	return pygame.font.SysFont(None, size)
 
 
@@ -71,6 +89,9 @@ class ChessBoard:
 		self.possible_moves: List[Tuple[int, int]] = []
 		# premove stored as (from_r, from_c, to_r, to_c)
 		self.premove = None
+		# Cache rendered piece surfaces: key = (symbol, size, fill_color, outline_color, outline_px)
+		self._piece_surface_cache = {}
+		self._last_piece_font_size: Optional[int] = None
 
 	@property
 	def width(self) -> int:
@@ -205,7 +226,10 @@ class ChessBoard:
 
 		# draw pieces with outlines and drop shadows
 		piece_font_size = max(12, int(self.square_size * 0.82))
-		piece_font = _get_font(piece_font_size)
+		# Invalidate cached surfaces when the font size changes (board resized)
+		if self._last_piece_font_size != piece_font_size:
+			self._piece_surface_cache.clear()
+			self._last_piece_font_size = piece_font_size
 		outline_px = getattr(values, 'PIECE_OUTLINE_PX', 2)
 		for r in range(self.rows):
 			for c in range(self.cols):
@@ -216,6 +240,8 @@ class ChessBoard:
 					symbol, color_key = piece[0], piece[1]
 				else:
 					symbol, color_key = piece, None
+				# pick a font able to render this symbol (helps on macOS)
+				piece_font = _get_font(piece_font_size, str(symbol))
 				# Unicode-only rendering: draw outlined text with a soft shadow
 				fill_color = values.PIECE_COLORS.get(color_key, values.PIECE_COLOR)
 				outline_color = values.PIECE_OUTLINE_COLORS.get(color_key, (128, 128, 128))

@@ -100,7 +100,6 @@ def draw_captured_bar(surface, captured_list, x, y, w, h, font, color, label, bg
 	surface.blit(label_surf, (x + 6, y + (h - label_surf.get_height()) // 2))
 	# pieces
 	offset_x = x + 6 + label_surf.get_width() + 6
-	piece_font = chessboard._get_font(max(12, h - 6))
 	for sym in captured_list:
 		# try image (PNG) or SVG first (size approx height minus padding)
 		svg_size = max(12, h - 6)
@@ -109,6 +108,8 @@ def draw_captured_bar(surface, captured_list, x, y, w, h, font, color, label, bg
 			surface.blit(surf, (offset_x, y + (h - surf.get_height()) // 2))
 			offset_x += surf.get_width() + 6
 		else:
+			# request a font that can render this symbol
+			piece_font = chessboard._get_font(max(12, h - 6), sym)
 			sym_surf = piece_font.render(sym, True, color)
 			surface.blit(sym_surf, (offset_x, y + (h - sym_surf.get_height()) // 2))
 			offset_x += sym_surf.get_width() + 1

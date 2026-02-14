@@ -2,6 +2,7 @@
 
 import chess
 import pieces
+import sys
 
 # Board defaults
 ROWS = 8
@@ -87,7 +88,15 @@ LANDING_BUTTON_HEIGHT = 64
 LANDING_BUTTON_RADIUS = 12
 
 # Font / rendering
-FONT_NAME = 'Segoe UI Symbol'
+if sys.platform == 'darwin':
+    # Prefer Apple Symbols on macOS (monochrome glyphs for chess symbols)
+    FONT_NAME = 'Apple Symbols'
+elif sys.platform.startswith('win'):
+    # Windows default
+    FONT_NAME = 'Segoe UI Symbol'
+else:
+    # Linux / other: try DejaVu Sans which usually contains chess glyphs
+    FONT_NAME = 'DejaVu Sans'
 
 # Per-piece render colors (map logical 'white'/'black' to RGB tuples)
 PIECE_COLORS = {
