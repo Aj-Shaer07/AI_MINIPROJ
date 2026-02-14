@@ -69,10 +69,20 @@ class GameController:
 
         return False, None
 
-    def get_moves_for_square(self, r: int, c: int) -> list:
+    def get_moves_for_square(self, r: int, c: int, for_color: Optional[bool] = None) -> list:
+        """Return list of (row,col) moves for square (r,c).
+
+        If `for_color` is provided (chess.WHITE or chess.BLACK) generate legal
+        moves as if that side is to move (useful for premoves when off-turn).
+        """
         sq_name = self.coords_to_square_name(r, c)
         sq = chess.parse_square(sq_name)
-        moves = [move for move in self.board.legal_moves if move.from_square == sq]
+        if for_color is None:
+            moves = [move for move in self.board.legal_moves if move.from_square == sq]
+        else:
+            board_copy = self.board.copy()
+            board_copy.turn = for_color
+            moves = [move for move in board_copy.legal_moves if move.from_square == sq]
         coords = []
         for move in moves:
             to_sq = move.to_square

@@ -7,6 +7,8 @@ import pieces
 import importlib
 import chessboard
 import chess
+import threading
+import queue
 from game_controller import GameController
 
 
@@ -21,6 +23,10 @@ def parse_args():
 
 	# engine options
 	p.add_argument('--engine-depth', type=int, default=4, help='Engine max search depth')
+
+	# clock / time control (seconds)
+	p.add_argument('--time', type=int, default=0, help='Initial time per side in seconds (0 = no clock)')
+	p.add_argument('--increment', type=int, default=0, help='Increment per move in seconds')
 
 	return p.parse_args()
 
@@ -96,27 +102,63 @@ def draw_captured_bar(surface, captured_list, x, y, w, h, font, color, label, bg
 	offset_x = x + 6 + label_surf.get_width() + 6
 	piece_font = chessboard._get_font(max(12, h - 6))
 	for sym in captured_list:
-		sym_surf = piece_font.render(sym, True, color)
-		surface.blit(sym_surf, (offset_x, y + (h - sym_surf.get_height()) // 2))
-		offset_x += sym_surf.get_width() + 1
+		# try image (PNG) or SVG first (size approx height minus padding)
+		svg_size = max(12, h - 6)
+		surf = pieces.get_piece_surface_for_symbol(sym, svg_size)
+		if surf is not None:
+			surface.blit(surf, (offset_x, y + (h - surf.get_height()) // 2))
+			offset_x += surf.get_width() + 6
+		else:
+			sym_surf = piece_font.render(sym, True, color)
+			surface.blit(sym_surf, (offset_x, y + (h - sym_surf.get_height()) // 2))
+			offset_x += sym_surf.get_width() + 1
 
 
 # ── main ────────────────────────────────────────────────────────────────
 
-def main():
+def main(start_time=None, increment=None, human_color=None):
 	args = parse_args()
+	# If called from the landing page, override CLI args with provided choices
+	if start_time is not None:
+		args.time = int(start_time)
+	if increment is not None:
+		args.increment = int(increment)
 	pygame.init()
 
 	board = chessboard.create_chessboard(rows=args.rows, cols=args.cols, square_size=args.square_size, margin=args.margin)
 
+	# time control
+	clock_enabled = getattr(args, 'time', 0) > 0
+	initial_time_ms = int(getattr(args, 'time', 0)) * 1000
+	increment_ms = int(getattr(args, 'increment', 0)) * 1000
+
 	# game controller (engine plays black by default)
-	controller = GameController(max_depth=getattr(args, 'engine_depth', 4), engine_is_black=True)
+	# If user chose to play black, engine should play white (engine_is_black=False)
+	engine_is_black = True
+	if human_color is not None:
+		engine_is_black = True if str(human_color).lower() == 'white' else False
+	controller = GameController(max_depth=getattr(args, 'engine_depth', 4), engine_is_black=engine_is_black)
 	controller.sync_to_ui(board)
+
+	# human color determination (human is opposite of engine)
+	human_color_key = 'white' if controller.engine_is_black else 'black'
+	human_color_bool = chess.WHITE if human_color_key == 'white' else chess.BLACK
+	# premove state: stored as (from_r, from_c, to_r, to_c)
+	premove = None
+	board.premove = None
+
+	# Engine worker thread/queue for non-blocking search
+	engine_thread = None
+	engine_queue = queue.Queue()
 
 	move_history = []
 	game_over_reason = None
+	# timers: we keep both 'elapsed' and 'remaining' variables so switching
+	# between modes is straightforward.
 	white_time_ms = 0
 	black_time_ms = 0
+	white_remaining_ms = initial_time_ms
+	black_remaining_ms = initial_time_ms
 	turn_start_ticks = pygame.time.get_ticks()
 
 	# layout constants
@@ -133,17 +175,26 @@ def main():
 		move_history.clear()
 		nonlocal game_over_reason
 		game_over_reason = None
-		nonlocal white_time_ms, black_time_ms, turn_start_ticks
+		nonlocal white_time_ms, black_time_ms, turn_start_ticks, white_remaining_ms, black_remaining_ms
 		white_time_ms = 0
 		black_time_ms = 0
+		white_remaining_ms = initial_time_ms
+		black_remaining_ms = initial_time_ms
 		turn_start_ticks = pygame.time.get_ticks()
-		nonlocal dragging, pending_drag, drag_piece, drag_from, selected_square, engine_pending
+		nonlocal dragging, pending_drag, drag_piece, drag_from, selected_square, engine_pending, engine_thread, engine_queue
 		dragging = False
 		pending_drag = False
 		drag_piece = None
 		drag_from = None
 		selected_square = None
 		engine_pending = False
+		# clear any running engine worker state so background results aren't applied to new game
+		engine_thread = None
+		try:
+			while not engine_queue.empty():
+				engine_queue.get_nowait()
+		except Exception:
+			pass
 
 	def add_move(color_label: str, move: chess.Move, board_ref: chess.Board) -> None:
 		uci = move.uci() if move else ""
@@ -203,7 +254,8 @@ def main():
 
 	# board positioning: board is on the left with captured strips above/below
 	board_area_x = panel_margin
-	board_area_y = panel_margin + captured_row_h
+	# nudge board up slightly to avoid overlap with bottom clock/labels
+	board_area_y = values.ELEMENT_GAP + panel_margin + captured_row_h - values.ELEMENT_GAP
 	top_left = (board_area_x, board_area_y)
 
 	# panel occupies the space right of the board, same total height
@@ -232,27 +284,42 @@ def main():
 				if sq:
 					r, c = sq
 					piece = board.board[r][c]
+					# destination click when a square is selected
 					if selected_square and (r, c) in board.possible_moves:
-						ok, move = controller.try_player_move(selected_square[0], selected_square[1], r, c)
-						if ok:
-							now = pygame.time.get_ticks()
-							white_time_ms += now - turn_start_ticks
-							turn_start_ticks = now
-							controller.print_terminal()
-							controller.sync_to_ui(board)
-							add_move("White", move, controller.board)
-							engine_pending = True
+						# if it's the human's turn, execute move immediately
+						if controller.board.turn == human_color_bool:
+							ok, move = controller.try_player_move(selected_square[0], selected_square[1], r, c)
+							if ok:
+								now = pygame.time.get_ticks()
+								elapsed = now - turn_start_ticks
+								if clock_enabled:
+									if human_color_bool == chess.WHITE:
+										white_remaining_ms -= elapsed
+										if increment_ms:
+											white_remaining_ms += increment_ms
+									else:
+										white_time_ms += elapsed
+								turn_start_ticks = now
+								controller.print_terminal()
+								controller.sync_to_ui(board)
+								add_move("White" if human_color_bool == chess.WHITE else "Black", move, controller.board)
+								engine_pending = True
+						# otherwise store a premove to be executed when it's the human's turn
+						else:
+							premove = (selected_square[0], selected_square[1], r, c)
+							board.premove = premove
+						# clear selection UI state
 						selected_square = None
 						board.highlight = None
 						board.possible_moves = []
 						pending_drag = False
-						dragging = False
 						drag_piece = None
 						drag_from = None
 						continue
+					# piece clicked: if piece belongs to human, allow selection even when opponent to move
 					if piece:
 						color_key = piece[1] if isinstance(piece, (list, tuple)) and len(piece) > 1 else None
-						if controller.board.turn == chess.WHITE and color_key == 'white':
+						if color_key == human_color_key:
 							if selected_square == (r, c):
 								selected_square = None
 								board.highlight = None
@@ -263,7 +330,8 @@ def main():
 							else:
 								selected_square = (r, c)
 								board.highlight = (r, c)
-								board.possible_moves = controller.get_moves_for_square(r, c)
+								# when selecting our piece while off-turn, show legal moves for our side
+								board.possible_moves = controller.get_moves_for_square(r, c, for_color=human_color_bool)
 								pending_drag = True
 								drag_piece = piece
 								drag_from = (r, c)
@@ -282,6 +350,15 @@ def main():
 						pending_drag = False
 						drag_piece = None
 						drag_from = None
+			elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
+				# right-click: cancel premove or selection
+				if premove:
+					premove = None
+					board.premove = None
+				else:
+					selected_square = None
+					board.highlight = None
+					board.possible_moves = []
 			elif event.type == pygame.MOUSEMOTION:
 				x, y = event.pos
 				mouse_pos = (x, y)
@@ -301,7 +378,13 @@ def main():
 						ok, move = controller.try_player_move(drag_from[0], drag_from[1], r2, c2)
 						if ok:
 							now = pygame.time.get_ticks()
-							white_time_ms += now - turn_start_ticks
+							elapsed = now - turn_start_ticks
+							if clock_enabled:
+								white_remaining_ms -= elapsed
+								if increment_ms:
+									white_remaining_ms += increment_ms
+							else:
+								white_time_ms += elapsed
 							turn_start_ticks = now
 							controller.print_terminal()
 							controller.sync_to_ui(board)
@@ -364,10 +447,42 @@ def main():
 					total_side_h = captured_row_h + board.height + captured_row_h
 					white_time_ms = 0
 					black_time_ms = 0
+					white_remaining_ms = initial_time_ms
+					black_remaining_ms = initial_time_ms
 					turn_start_ticks = pygame.time.get_ticks()
 
 		if controller.board.is_game_over() and game_over_reason is None:
 			game_over_reason = game_over_text()
+
+		# If a premove exists and it is now the human's turn, try to execute it
+		if premove and controller.board.turn == human_color_bool and not is_game_over_ui():
+			fr, fc, tr, tc = premove
+			# clear stored premove immediately so we don't retry endlessly
+			premove = None
+			board.premove = None
+			ok, move = controller.try_player_move(fr, fc, tr, tc)
+			if ok:
+				now = pygame.time.get_ticks()
+				elapsed = now - turn_start_ticks
+				if clock_enabled:
+					if human_color_bool == chess.WHITE:
+						white_remaining_ms -= elapsed
+						if increment_ms:
+							white_remaining_ms += increment_ms
+					else:
+						black_remaining_ms -= elapsed
+						if increment_ms:
+							black_remaining_ms += increment_ms
+				else:
+					if human_color_bool == chess.WHITE:
+						white_time_ms += elapsed
+					else:
+						black_time_ms += elapsed
+				turn_start_ticks = now
+				controller.print_terminal()
+				controller.sync_to_ui(board)
+				add_move("White" if human_color_bool == chess.WHITE else "Black", move, controller.board)
+				engine_pending = True
 
 		# ── DRAW ────────────────────────────────────────────────────────
 		screen.fill(values.BG_COLOR)
@@ -380,19 +495,20 @@ def main():
 		white_caps, black_caps = captured_pieces_data(controller.board)
 
 		# top bar (Black's captures / White pieces taken)
+		# top bar: pieces of White that Black has captured (show White pieces taken)
 		draw_captured_bar(
 			screen, black_caps,
 			board_area_x, panel_margin,
 			board.width, captured_row_h,
-			cap_font, (200, 200, 200), "▼ ",
+			cap_font, (200, 200, 200), "White Captured",
 			bg_color=values.CAPTURED_BG,
 		)
-		# bottom bar (White's captures / Black pieces taken)
+		# bottom bar: pieces of Black that White has captured (show Black pieces taken)
 		draw_captured_bar(
 			screen, white_caps,
 			board_area_x, board_area_y + board.height,
 			board.width, captured_row_h,
-			cap_font, (200, 200, 200), "▲ ",
+			cap_font, (200, 200, 200), "Black Captured",
 			bg_color=values.CAPTURED_BG,
 		)
 
@@ -409,46 +525,82 @@ def main():
 
 		title_font = chessboard._get_font(22)
 		title_text = title_font.render("♜  Move History", True, values.PANEL_TITLE_COLOR)
-		screen.blit(title_text, (panel_x + 14, panel_y + 12))
+		screen.blit(title_text, (panel_x + values.PANEL_PADDING, panel_y + 12))
 
 		# timer
 		now_ticks = pygame.time.get_ticks()
-		if not is_game_over_ui():
-			if controller.board.turn == chess.WHITE:
-				white_display = white_time_ms + (now_ticks - turn_start_ticks)
-				black_display = black_time_ms
+		if clock_enabled:
+			if not is_game_over_ui():
+				if controller.board.turn == chess.WHITE:
+					white_display = white_remaining_ms - (now_ticks - turn_start_ticks)
+					black_display = black_remaining_ms
+				else:
+					white_display = white_remaining_ms
+					black_display = black_remaining_ms - (now_ticks - turn_start_ticks)
+			else:
+				white_display = white_remaining_ms
+				black_display = black_remaining_ms
+		else:
+			if not is_game_over_ui():
+				if controller.board.turn == chess.WHITE:
+					white_display = white_time_ms + (now_ticks - turn_start_ticks)
+					black_display = black_time_ms
+				else:
+					white_display = white_time_ms
+					black_display = black_time_ms + (now_ticks - turn_start_ticks)
 			else:
 				white_display = white_time_ms
-				black_display = black_time_ms + (now_ticks - turn_start_ticks)
-		else:
-			white_display = white_time_ms
-			black_display = black_time_ms
+				black_display = black_time_ms
 
-		timer_font = chessboard._get_font(15)
-		# timer row
-		timer_y = panel_y + 52
-		# white timer
-		w_icon = timer_font.render("♔", True, (220, 220, 220))
-		screen.blit(w_icon, (panel_x + 14, timer_y))
-		w_time = timer_font.render(fmt_time(white_display), True, values.PANEL_TEXT_COLOR)
-		screen.blit(w_time, (panel_x + 14 + w_icon.get_width() + 4, timer_y))
-		# black timer
-		b_icon = timer_font.render("♚", True, (180, 180, 180))
-		b_time = timer_font.render(fmt_time(black_display), True, values.PANEL_TEXT_COLOR)
-		bx = panel_x + panel_w - 14 - b_time.get_width()
-		screen.blit(b_time, (bx, timer_y))
-		screen.blit(b_icon, (bx - b_icon.get_width() - 4, timer_y))
+		# timeout detection (when countdown reaches zero on the side to move)
+		if clock_enabled and not is_game_over_ui():
+			if controller.board.turn == chess.WHITE and white_display <= 0:
+				game_over_reason = "Timeout — White"
+				controller.print_terminal()
+				print("Result: Timeout — Black wins")
+			elif controller.board.turn == chess.BLACK and black_display <= 0:
+				game_over_reason = "Timeout — Black"
+				controller.print_terminal()
+				print("Result: Timeout — White wins")
 
-		# turn indicator
+
+		# Draw dedicated clock UI near the board (top = Black, bottom = White)
+		clock_w = min(values.CLOCK_WIDTH, board.width // 3)
+		clock_h = values.CLOCK_HEIGHT
+		clock_x = board_area_x + board.width - clock_w - values.CLOCK_MARGIN
+		top_clock_y = panel_margin + (captured_row_h - clock_h) // 2
+		# add a small gap above the bottom clock so it doesn't touch board labels
+		bottom_clock_y = board_area_y + board.height + (captured_row_h - clock_h) // 2 + values.ELEMENT_GAP
+
+		clock_font = chessboard._get_font(26)
+		# top clock (Black)
+		black_active = (controller.board.turn == chess.BLACK) and not is_game_over_ui()
+		black_bg = values.CLOCK_ACTIVE_BG if black_active else values.CLOCK_INACTIVE_BG
+		black_text_color = values.CLOCK_ACTIVE_TEXT if black_active else values.CLOCK_INACTIVE_TEXT
+		top_rect = pygame.Rect(clock_x, top_clock_y, clock_w, clock_h)
+		_draw_rounded_rect(screen, black_bg, top_rect, values.CLOCK_RADIUS)
+		black_time_surf = clock_font.render(fmt_time(black_display), True, black_text_color)
+		screen.blit(black_time_surf, (top_rect.centerx - black_time_surf.get_width() // 2, top_rect.centery - black_time_surf.get_height() // 2))
+
+		# bottom clock (White)
+		white_active = (controller.board.turn == chess.WHITE) and not is_game_over_ui()
+		white_bg = values.CLOCK_ACTIVE_BG if white_active else values.CLOCK_INACTIVE_BG
+		white_text_color = values.CLOCK_ACTIVE_TEXT if white_active else values.CLOCK_INACTIVE_TEXT
+		bottom_rect = pygame.Rect(clock_x, bottom_clock_y, clock_w, clock_h)
+		_draw_rounded_rect(screen, white_bg, bottom_rect, values.CLOCK_RADIUS)
+		white_time_surf = clock_font.render(fmt_time(white_display), True, white_text_color)
+		screen.blit(white_time_surf, (bottom_rect.centerx - white_time_surf.get_width() // 2, bottom_rect.centery - white_time_surf.get_height() // 2))
+
+		# small turn indicator inside the side panel (keeps layout semantics)
 		turn_label = "White's Turn" if controller.board.turn == chess.WHITE else "Black's Turn"
 		if is_game_over_ui():
 			turn_label = "Game Over"
 		turn_font = chessboard._get_font(14)
 		turn_surf = turn_font.render(turn_label, True, (150, 150, 158))
-		screen.blit(turn_surf, (panel_x + 14, timer_y + 22))
+		screen.blit(turn_surf, (panel_x + 14, panel_y + 52 + 22))
 
-		# separator line
-		sep_y = timer_y + 44
+		# separator line (maintain previous spacing for history area)
+		sep_y = panel_y + 52 + 44
 		pygame.draw.line(screen, values.PANEL_BORDER_COLOR, (panel_x + 10, sep_y), (panel_x + panel_w - 10, sep_y), 1)
 
 		# move history list
@@ -557,6 +709,13 @@ def main():
 			elif game_over_reason and "Resign" in game_over_reason:
 				result_line = "White Resigned — Black Wins"
 				result_color = (200, 200, 210)
+			elif game_over_reason and "Timeout" in game_over_reason:
+				# game_over_reason format: "Timeout — White" or "Timeout — Black"
+				if "White" in game_over_reason:
+					result_line = "White Timed Out — Black Wins"
+				else:
+					result_line = "Black Timed Out — White Wins"
+				result_color = (200, 200, 210)
 			else:
 				result_line = "It's a Draw"
 				result_color = (200, 200, 210)
@@ -582,32 +741,87 @@ def main():
 
 		# draw dragged piece at mouse
 		if dragging and drag_piece and mouse_pos:
-			piece_font = chessboard._get_font(max(12, int(board.square_size * 0.9)))
+			# prefer SVG for dragged piece
+			svg_size = max(12, int(board.square_size * 0.9))
 			symbol = drag_piece[0] if isinstance(drag_piece, (list, tuple)) else drag_piece
 			color_key = drag_piece[1] if isinstance(drag_piece, (list, tuple)) else None
-			fill_color = values.PIECE_COLORS.get(color_key, values.PIECE_COLOR)
-			outline_color = values.PIECE_OUTLINE_COLORS.get(color_key, (128, 128, 128))
-			outline_px = getattr(values, 'PIECE_OUTLINE_PX', 2)
-			text = chessboard._render_outlined_text(piece_font, str(symbol), fill_color, outline_color, outline_px=outline_px)
+			# unified loader: PNG -> SVG -> placeholder
+			surf = pieces.get_piece_surface_for_symbol(str(symbol), svg_size) if symbol else None
+			# explicit color override
+			if surf is None and symbol and color_key:
+				piece_name = pieces.name_from_symbol(str(symbol))
+				surf = pieces.get_piece_surface(piece_name, color_key, svg_size)
 			x, y = mouse_pos
-			screen.blit(text, (x - text.get_width() // 2, y - text.get_height() // 2))
+			if surf is not None:
+				screen.blit(surf, (x - surf.get_width() // 2, y - surf.get_height() // 2))
+			else:
+				piece_font = chessboard._get_font(svg_size)
+				fill_color = values.PIECE_COLORS.get(color_key, values.PIECE_COLOR)
+				outline_color = values.PIECE_OUTLINE_COLORS.get(color_key, (128, 128, 128))
+				outline_px = getattr(values, 'PIECE_OUTLINE_PX', 2)
+				text = chessboard._render_outlined_text(piece_font, str(symbol), fill_color, outline_color, outline_px=outline_px)
+				screen.blit(text, (x - text.get_width() // 2, y - text.get_height() // 2))
 
 		pygame.display.flip()
 
 		if engine_pending and is_game_over_ui():
 			engine_pending = False
 
+		# Engine: start background worker when engine needs to move; apply result when ready
 		if engine_pending and not is_game_over_ui() and controller.board.turn == (not controller.engine_is_black):
-			eng_move = controller.engine_move()
-			now = pygame.time.get_ticks()
-			black_time_ms += now - turn_start_ticks
-			turn_start_ticks = now
-			if eng_move:
-				print(f"[ENGINE] plays: {eng_move}")
-				controller.print_terminal()
-				controller.sync_to_ui(board)
-				add_move("Black (Engine)", eng_move, controller.board)
-			engine_pending = False
+			# Start worker thread if not already running
+			if engine_thread is None:
+				def _engine_worker():
+					import algorithms.search as engine_search
+					# search on a copy so we don't mutate the UI/main thread board
+					board_copy = controller.board.copy()
+					move = engine_search.iterative_deepening(board_copy, controller.max_depth, engine_is_black=controller.engine_is_black)
+					engine_queue.put(move)
+				engine_thread = threading.Thread(target=_engine_worker, daemon=True)
+				engine_thread.start()
+			else:
+				# worker finished? retrieve and apply result
+				if not engine_thread.is_alive():
+					eng_move = None
+					try:
+						eng_move = engine_queue.get_nowait()
+					except queue.Empty:
+						eng_move = None
+					# update timing for engine side
+					now = pygame.time.get_ticks()
+					elapsed = now - turn_start_ticks
+					if clock_enabled:
+						if controller.engine_is_black:
+							black_remaining_ms -= elapsed
+							if increment_ms:
+								black_remaining_ms += increment_ms
+						else:
+							white_remaining_ms -= elapsed
+							if increment_ms:
+								white_remaining_ms += increment_ms
+					else:
+						if controller.engine_is_black:
+							black_time_ms += elapsed
+						else:
+							white_time_ms += elapsed
+					turn_start_ticks = now
+					if eng_move:
+						# push move on main thread (so UI sync is safe)
+						try:
+							san = controller.board.san(eng_move)
+						except Exception:
+							san = None
+						controller.board.push(eng_move)
+						controller.last_move = eng_move
+						controller.last_move_san = san
+						print(f"[ENGINE] plays: {eng_move}")
+						controller.print_terminal()
+						controller.sync_to_ui(board)
+						label = "Black (Engine)" if controller.engine_is_black else "White (Engine)"
+						add_move(label, eng_move, controller.board)
+					# cleanup
+					engine_pending = False
+					engine_thread = None
 		clock.tick(60)
 
 	pygame.quit()
@@ -615,4 +829,10 @@ def main():
 
 
 if __name__ == '__main__':
-	main()
+	try:
+		import landing
+
+		landing.show_and_run(main)
+	except Exception:
+		# If landing fails for any reason, fall back to starting the game directly
+		main()

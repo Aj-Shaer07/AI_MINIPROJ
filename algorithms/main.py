@@ -28,6 +28,9 @@ def print_terminal(board: chess.Board, last_move_san: Optional[str] = None) -> N
             print(f"Last move: {last_move_san} — {side} (move {move_no})")
         except Exception:
             print(f"Last move: {last_move_san}")
+        sep = "=" * 60
+        # Board header
+        print(sep)
 
     # Turn and state
     print(f"To move: {'White' if board.turn == chess.WHITE else 'Black'}")

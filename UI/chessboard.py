@@ -1,6 +1,7 @@
 import pygame
 from typing import List, Optional, Tuple
 import values
+import pieces
 
 
 Color = Tuple[int, int, int]
@@ -68,6 +69,8 @@ class ChessBoard:
 		self.highlight: Optional[Tuple[int, int]] = None
 		self.king_in_check: Optional[Tuple[int, int]] = None
 		self.possible_moves: List[Tuple[int, int]] = []
+		# premove stored as (from_r, from_c, to_r, to_c)
+		self.premove = None
 
 	@property
 	def width(self) -> int:
@@ -151,6 +154,55 @@ class ChessBoard:
 				sy = ty + self.margin + rm * self.square_size
 				surface.blit(dot_surf, (sx, sy))
 
+		# draw premove (origin + destination) if present
+		if getattr(self, 'premove', None):
+			try:
+				fr, fc, tr, tc = self.premove
+				# prepare an overlay surface so we can draw with alpha easily
+				over = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+				sq = self.square_size
+				half = sq // 2
+				# relative centers inside overlay (account for margin)
+				ori = (self.margin + fc * sq + half, self.margin + fr * sq + half)
+				dst = (self.margin + tc * sq + half, self.margin + tr * sq + half)
+				# translucent fill on origin and destination squares
+				for rr, cc in ((fr, fc), (tr, tc)):
+					if 0 <= rr < self.rows and 0 <= cc < self.cols:
+						rect_rel = pygame.Rect(self.margin + cc * sq, self.margin + rr * sq, sq, sq)
+						pygame.draw.rect(over, values.PREMOVE_COLOR, rect_rel)
+				# draw thick arrow line and arrowhead
+				thick = max(3, sq // 10)
+				pygame.draw.line(over, values.PREMOVE_COLOR, ori, dst, thick)
+				# arrowhead (triangle) at destination
+				import math
+				dx = dst[0] - ori[0]
+				dy = dst[1] - ori[1]
+				dist = math.hypot(dx, dy)
+				if dist > 0:
+					norm_x = dx / dist
+					norm_y = dy / dist
+					size = max(8, sq // 6)
+					# base point a little before dest so arrowhead sits nicely
+					base_x = dst[0] - norm_x * (size * 0.6)
+					base_y = dst[1] - norm_y * (size * 0.6)
+					# perpendicular for width
+					perp_x = -norm_y
+					perp_y = norm_x
+					p1 = (dst[0], dst[1])
+					p2 = (base_x + perp_x * (size * 0.5), base_y + perp_y * (size * 0.5))
+					p3 = (base_x - perp_x * (size * 0.5), base_y - perp_y * (size * 0.5))
+					pygame.draw.polygon(over, values.PREMOVE_COLOR, [p1, p2, p3])
+				# destination ring
+				ring_r = max(6, sq // 4)
+				pygame.draw.circle(over, values.PREMOVE_COLOR, dst, ring_r, max(3, sq // 18))
+				# origin outline (rounded rect)
+				orig_rect = pygame.Rect(self.margin + fc * sq + 4, self.margin + fr * sq + 4, sq - 8, sq - 8)
+				pygame.draw.rect(over, values.PREMOVE_COLOR, orig_rect, max(3, sq // 14), border_radius=6)
+				# blit overlay at board top-left
+				surface.blit(over, (tx, ty))
+			except Exception:
+				pass
+
 		# draw pieces with outlines and drop shadows
 		piece_font_size = max(12, int(self.square_size * 0.82))
 		piece_font = _get_font(piece_font_size)
@@ -164,6 +216,7 @@ class ChessBoard:
 					symbol, color_key = piece[0], piece[1]
 				else:
 					symbol, color_key = piece, None
+				# Unicode-only rendering: draw outlined text with a soft shadow
 				fill_color = values.PIECE_COLORS.get(color_key, values.PIECE_COLOR)
 				outline_color = values.PIECE_OUTLINE_COLORS.get(color_key, (128, 128, 128))
 				text = _render_outlined_text(piece_font, str(symbol), fill_color, outline_color, outline_px=outline_px)
