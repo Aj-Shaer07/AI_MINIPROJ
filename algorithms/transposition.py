@@ -4,7 +4,6 @@ transposition_table = {}
 
 
 def _key(board):
-    # Prefer zobrist keys when available, otherwise fall back to full FEN for stability
     if hasattr(board, "transposition_key"):
         return board.transposition_key()
     if hasattr(board, "_transposition_key"):
@@ -12,22 +11,32 @@ def _key(board):
     return board.fen()
 
 
-def lookup(board, depth, alpha, beta):
+def lookup(board, depth, alpha, beta, stats=None):
+    if stats is not None:
+        stats.tt_probes += 1
+
     entry = transposition_table.get(_key(board))
     if not entry:
         return None
 
     entry_depth, score, flag, move = entry
 
-    # Only use entries that are at least as deep as the current search
     if entry_depth < depth:
         return None
 
     if flag == EXACT:
+        if stats is not None:
+            stats.tt_hits += 1
         return score, move
+
     if flag == LOWER and score >= beta:
+        if stats is not None:
+            stats.tt_hits += 1
         return score, move
+
     if flag == UPPER and score <= alpha:
+        if stats is not None:
+            stats.tt_hits += 1
         return score, move
 
     return None

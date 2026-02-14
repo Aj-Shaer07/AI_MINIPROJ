@@ -8,31 +8,19 @@ MAX_DEPTH = 4
 
 
 def print_terminal(board: chess.Board, last_move_san: Optional[str] = None) -> None:
-    """Print a compact, human-friendly terminal view of `board`.
-
-    Shows the ASCII board, whose turn it is, and the most recent move
-    with move number and which side played it when available.
-    """
+    """Print a compact, human-friendly terminal view of `board`."""
     sep = "=" * 60
-    # Board header
     print(sep)
     print(board)
 
-    # Last move details
     if last_move_san:
-        # Determine move number and side from board.move_stack
         try:
-            last_move = board.move_stack[-1]
             move_no = (len(board.move_stack) + 1) // 2
-            side = 'Black' if board.turn == chess.WHITE else 'White'
+            side = "Black" if board.turn == chess.WHITE else "White"
             print(f"Last move: {last_move_san} — {side} (move {move_no})")
         except Exception:
             print(f"Last move: {last_move_san}")
-        sep = "=" * 60
-        # Board header
-        print(sep)
 
-    # Turn and state
     print(f"To move: {'White' if board.turn == chess.WHITE else 'Black'}")
 
     if board.is_checkmate():
@@ -52,21 +40,32 @@ def print_terminal(board: chess.Board, last_move_san: Optional[str] = None) -> N
 
 def main():
     board = chess.Board()
+    last_move_san = None
+
     while not board.is_game_over():
-        print_terminal(board)
+        print_terminal(board, last_move_san)
 
         if board.turn == chess.WHITE:
             move = input("Your move (SAN): ")
             board.push_san(move)
+            last_move_san = move
         else:
-            engine_move = engine_search.iterative_deepening(board, MAX_DEPTH, engine_is_black=True)
-            if engine_move:
-                san = board.san(engine_move)
-                board.push(engine_move)
-                print(f"Engine plays: {san} ({engine_move})")
+            move, info = engine_search.search_with_info(
+                board,
+                MAX_DEPTH,
+                engine_is_black=True
+            )
+
+            if move:
+                san = board.san(move)
+                board.push(move)
+                last_move_san = san
+
+                print(f"Engine plays: {san} ({move})")
+                print(engine_search.format_search_info(info))
 
     print("Game Over:", board.result())
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
