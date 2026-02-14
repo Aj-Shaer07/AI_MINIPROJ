@@ -10,6 +10,7 @@ import chess
 import threading
 import queue
 from game_controller import GameController
+import evaluation_values
 
 
 def parse_args():
@@ -154,6 +155,7 @@ def main(start_time=None, increment=None, human_color=None):
 
 	move_history = []
 	game_over_reason = None
+	eval_display_info = None
 	# timers: we keep both 'elapsed' and 'remaining' variables so switching
 	# between modes is straightforward.
 	white_time_ms = 0
@@ -633,6 +635,33 @@ def main(start_time=None, increment=None, human_color=None):
 			screen.blit(text_surf, (dot_x + 10, line_y))
 			line_y += line_height
 
+		# Draw evaluation info box to the right of the panel (outside panel)
+		if eval_display_info:
+			info_x = panel_x + panel_w + values.EVAL_BOX_MARGIN
+			info_y = panel_y + 12
+			info_w = values.EVAL_BOX_WIDTH
+			info_h = values.EVAL_BOX_HEIGHT
+			info_rect = pygame.Rect(info_x, info_y, info_w, info_h)
+			_draw_rounded_rect(screen, values.EVAL_BOX_BG, info_rect, 10, border=2, border_color=values.EVAL_BOX_BORDER)
+			title_font = chessboard._get_font(16)
+			title_surf = title_font.render("Engine Evaluation", True, values.EVAL_BOX_TITLE_COLOR)
+			screen.blit(title_surf, (info_x + 12, info_y + 8))
+			val_font = chessboard._get_font(14)
+			lines = [
+				f"Eval: {eval_display_info.get('eval_cp', 0)} cp",
+				f"Depth: {eval_display_info.get('depth', 0)}",
+				f"Time: {eval_display_info.get('time_ms', 0)} ms",
+				f"Nodes: {eval_display_info.get('nodes', 0)}",
+				f"Cutoffs: {eval_display_info.get('cutoffs', 0)}",
+				f"TT hits: {eval_display_info.get('tt_hits', 0)}",
+				f"MaxPly: {eval_display_info.get('max_ply', 0)}",
+			]
+			ly = info_y + 36
+			for ln in lines:
+				ls = val_font.render(ln, True, values.EVAL_BOX_TEXT_COLOR)
+				screen.blit(ls, (info_x + 12, ly))
+				ly += ls.get_height() + 6
+
 		# resign button (inside panel, at bottom)
 		resign_rect = pygame.Rect(
 			panel_x + 10,
@@ -808,18 +837,38 @@ def main(start_time=None, increment=None, human_color=None):
 					turn_start_ticks = now
 					if eng_move:
 						# push move on main thread (so UI sync is safe)
+						# keep the original engine result so we can extract eval info
+						eng_result = eng_move
+						# normalize to canonical dict for display
 						try:
-							san = controller.board.san(eng_move)
+							eval_display_info = evaluation_values.search_result_to_dict(eng_result)
+						except Exception:
+							eval_display_info = None
+						# extract actual move object
+						move_obj = None
+						if isinstance(eng_result, (list, tuple)) and len(eng_result) > 0:
+							move_obj = eng_result[0]
+						elif isinstance(eng_result, dict):
+							move_obj = eng_result.get("move")
+						# try UCI fallback
+						if move_obj is None and eval_display_info and eval_display_info.get("move_uci"):
+							try:
+								move_obj = chess.Move.from_uci(eval_display_info.get("move_uci"))
+							except Exception:
+								move_obj = None
+						try:
+							san = controller.board.san(move_obj) if move_obj is not None else None
 						except Exception:
 							san = None
-						controller.board.push(eng_move)
-						controller.last_move = eng_move
-						controller.last_move_san = san
-						print(f"[ENGINE] plays: {eng_move}")
-						controller.print_terminal()
-						controller.sync_to_ui(board)
-						label = "Black (Engine)" if controller.engine_is_black else "White (Engine)"
-						add_move(label, eng_move, controller.board)
+						if move_obj is not None:
+							controller.board.push(move_obj)
+							controller.last_move = move_obj
+							controller.last_move_san = san
+							print(f"[ENGINE] plays: {move_obj}")
+							controller.print_terminal()
+							controller.sync_to_ui(board)
+							label = "Black (Engine)" if controller.engine_is_black else "White (Engine)"
+							add_move(label, move_obj, controller.board)
 					# cleanup
 					engine_pending = False
 					engine_thread = None

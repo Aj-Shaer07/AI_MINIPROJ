@@ -2,6 +2,7 @@ import pygame
 from typing import List, Optional, Tuple
 import values
 import pieces
+import sys
 
 
 Color = Tuple[int, int, int]
@@ -231,6 +232,11 @@ class ChessBoard:
 			self._piece_surface_cache.clear()
 			self._last_piece_font_size = piece_font_size
 		outline_px = getattr(values, 'PIECE_OUTLINE_PX', 2)
+		# On Windows the default outlined rendering can make some glyphs
+		# look boxed; prefer no outline there so the unicode glyphs render
+		# as intended. macOS keeps the outline for visual style.
+		if sys.platform.startswith('win'):
+			outline_px = 0
 		for r in range(self.rows):
 			for c in range(self.cols):
 				piece = self.board[r][c]

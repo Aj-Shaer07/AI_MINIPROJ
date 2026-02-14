@@ -13,13 +13,22 @@ MARGIN = 28
 # Side panel (move log)
 PANEL_WIDTH = 240
 
+# Evaluation info box (rendered to the right of the side panel)
+EVAL_BOX_WIDTH = 260
+EVAL_BOX_HEIGHT = 230
+EVAL_BOX_MARGIN = 12
+EVAL_BOX_BG = (22, 22, 26)
+EVAL_BOX_BORDER = (40, 40, 44)
+EVAL_BOX_TITLE_COLOR = (220, 220, 220)
+EVAL_BOX_TEXT_COLOR = (190, 190, 200)
+
 # Window defaults – computed so board + panel + gaps fit nicely
 _BOARD_W = COLS * SQUARE_SIZE + 2 * MARGIN
 _BOARD_H = ROWS * SQUARE_SIZE + 2 * MARGIN
 _CAPTURED_ROW_H = 32  # height reserved for captured-pieces strip above/below board
 PANEL_MARGIN = 20
 
-WINDOW_WIDTH = PANEL_MARGIN + _BOARD_W + PANEL_MARGIN + PANEL_WIDTH + PANEL_MARGIN
+WINDOW_WIDTH = PANEL_MARGIN + _BOARD_W + PANEL_MARGIN + PANEL_WIDTH + PANEL_MARGIN + EVAL_BOX_MARGIN + EVAL_BOX_WIDTH
 WINDOW_HEIGHT = PANEL_MARGIN + _CAPTURED_ROW_H + _BOARD_H + _CAPTURED_ROW_H + PANEL_MARGIN
 
 # Colors — unified dark charcoal theme

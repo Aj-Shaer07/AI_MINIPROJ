@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple, List
 
 import pygame
+import sys
 
 # Caches to avoid repeated expensive font lookups
 # font_name -> resolved font path (or None if not found)
@@ -102,7 +103,39 @@ def available_pieces_for_style(style: str = 'unicode') -> list:
 
 
 def get_piece_surface(piece_name: Optional[str], color: Optional[str], size_px: int):
-    """Compatibility stub: image assets removed, return None so UI uses Unicode rendering."""
+    """Return a pygame.Surface for the piece when running on macOS.
+
+    On Windows we keep the behavior of returning None so the UI falls
+    back to rendering Unicode glyphs directly. On macOS we attempt to
+    pick a font that contains the glyph and render it into a surface so
+    the font-specific glyphs are used.
+    """
+    if not piece_name or not color:
+        return None
+    symbol = PIECES.get(piece_name, {}).get(color)
+    if not symbol:
+        return None
+
+    # macOS: try to render the symbol using a matched system font so
+    # glyphs from the system font are used. On other platforms return
+    # None so the UI renders the plain unicode character.
+    if sys.platform.startswith("darwin"):
+        try:
+            font_name = get_font_for_symbol(symbol, size=size_px)
+            if not font_name:
+                return None
+            font_path = pygame.font.match_font(font_name)
+            if not font_path:
+                return None
+            pygame.font.init()
+            font = pygame.font.Font(font_path, size_px)
+            # Render in black by default; UI can blit/transform as needed.
+            surf = font.render(symbol, True, (0, 0, 0))
+            return surf
+        except Exception:
+            return None
+
+    # Non-macOS: no surface (UI should render Unicode glyphs itself)
     return None
 
 
@@ -160,19 +193,58 @@ def get_font_for_symbol(symbol: str, preferred_fonts: Optional[List[str]] = None
     cache_key = (symbol, size)
     if cache_key in _symbol_font_cache:
         return _symbol_font_cache[cache_key]
-    defaults = [
-        "Apple Symbols",
-        "Symbola",
-        "Symbola",
-        "DejaVu Sans",
-        "DejaVuSans",
-        "Arial Unicode MS",
-        "Apple Color Emoji",
-    ]
+    # Prefer platform-specific sensible defaults first
+    if sys.platform.startswith('win'):
+        defaults = [
+            "Segoe UI Symbol",
+            "Segoe UI Emoji",
+            "Segoe UI",
+            "Arial Unicode MS",
+            "Arial",
+            "Tahoma",
+            "Calibri",
+            "Times New Roman",
+            "Symbola",
+            "DejaVu Sans",
+            "Apple Color Emoji",
+        ]
+    elif sys.platform == 'darwin':
+        defaults = [
+            "Apple Symbols",
+            "Apple Color Emoji",
+            "Symbola",
+            "DejaVu Sans",
+            "Arial Unicode MS",
+        ]
+    else:
+        defaults = [
+            "DejaVu Sans",
+            "DejaVuSans",
+            "Symbola",
+            "Arial Unicode MS",
+            "Arial",
+        ]
     fonts_to_try = preferred_fonts or defaults
     for fname in fonts_to_try:
         if _is_symbol_renderable_with_font(symbol, fname, size=size):
             _symbol_font_cache[cache_key] = fname
             return fname
+    # If the explicit list didn't find a usable font, scan installed fonts
+    # for plausible candidates (helps on Windows where family names differ).
+    try:
+        pygame.font.init()
+        available = pygame.font.get_fonts() or []
+    except Exception:
+        available = []
+
+    keywords = ("seg", "symbol", "emoji", "deja", "arial", "unicode", "times", "calibri", "tahoma", "ms")
+    for af in available:
+        # `af` returned by get_fonts() is usually lowercase and space-free;
+        # check for known substrings before trying.
+        if any(k in af for k in keywords):
+            if _is_symbol_renderable_with_font(symbol, af, size=size):
+                _symbol_font_cache[cache_key] = af
+                return af
+
     _symbol_font_cache[cache_key] = None
     return None
