@@ -22,13 +22,22 @@ EVAL_BOX_BORDER = (40, 40, 44)
 EVAL_BOX_TITLE_COLOR = (220, 220, 220)
 EVAL_BOX_TEXT_COLOR = (190, 190, 200)
 
+# Evaluation bar (vertical) rendered to the left of the board
+EVAL_BAR_WIDTH = 22
+EVAL_BAR_GAP = 8
+EVAL_BAR_MAX_CP = 10000.0  # clamp mapping range (+/- centipawns)
+EVAL_BAR_BG = (28, 28, 32)
+EVAL_BAR_WHITE_COLOR = (84, 196, 129)  # green for White advantage
+EVAL_BAR_BLACK_COLOR = (231, 76, 60)   # red for Black advantage
+EVAL_BAR_TEXT_COLOR = (200, 200, 200)
+
 # Window defaults – computed so board + panel + gaps fit nicely
 _BOARD_W = COLS * SQUARE_SIZE + 2 * MARGIN
 _BOARD_H = ROWS * SQUARE_SIZE + 2 * MARGIN
 _CAPTURED_ROW_H = 32  # height reserved for captured-pieces strip above/below board
 PANEL_MARGIN = 20
 
-WINDOW_WIDTH = PANEL_MARGIN + _BOARD_W + PANEL_MARGIN + PANEL_WIDTH + PANEL_MARGIN + EVAL_BOX_MARGIN + EVAL_BOX_WIDTH
+WINDOW_WIDTH = PANEL_MARGIN + EVAL_BAR_WIDTH + EVAL_BAR_GAP + _BOARD_W + PANEL_MARGIN + PANEL_WIDTH + PANEL_MARGIN + EVAL_BOX_MARGIN + EVAL_BOX_WIDTH
 WINDOW_HEIGHT = PANEL_MARGIN + _CAPTURED_ROW_H + _BOARD_H + _CAPTURED_ROW_H + PANEL_MARGIN
 
 # Colors — unified dark charcoal theme
@@ -55,6 +64,8 @@ PANEL_HEADER_BG = (34, 34, 38)
 RESIGN_BTN_COLOR = (180, 50, 50)
 RESIGN_BTN_HOVER = (210, 60, 60)
 RESIGN_BTN_DISABLED = (50, 50, 55)
+# Resign button height (moved from UI/main.py)
+RESIGN_BUTTON_H = 42
 
 # Game-over popup — matching dark charcoal theme
 POPUP_BG = (28, 28, 32)
@@ -75,6 +86,9 @@ CLOCK_ACTIVE_BG = LIGHT_COLOR
 CLOCK_ACTIVE_TEXT = (64, 47, 33)
 CLOCK_INACTIVE_BG = CAPTURED_BG
 CLOCK_INACTIVE_TEXT = PANEL_TEXT_COLOR
+
+# Engine clock: when False the engine's clock is hidden/disabled
+ENGINE_HAS_CLOCK = False
 
 # General UI spacing
 PANEL_PADDING = 14

@@ -156,6 +156,9 @@ def main(start_time=None, increment=None, human_color=None):
 	move_history = []
 	game_over_reason = None
 	eval_display_info = None
+	# evaluation bar animation state (centipawns)
+	eval_cp_target = 0.0
+	eval_cp_current = 0.0
 	# timers: we keep both 'elapsed' and 'remaining' variables so switching
 	# between modes is straightforward.
 	white_time_ms = 0
@@ -164,10 +167,7 @@ def main(start_time=None, increment=None, human_color=None):
 	black_remaining_ms = initial_time_ms
 	turn_start_ticks = pygame.time.get_ticks()
 
-	# layout constants
-	panel_margin = values.PANEL_MARGIN
-	panel_w = values.PANEL_WIDTH
-	captured_row_h = values._CAPTURED_ROW_H
+	# layout constants are read from values.* directly where needed
 
 	def reset_game() -> None:
 		controller.board = chess.Board()
@@ -184,13 +184,16 @@ def main(start_time=None, increment=None, human_color=None):
 		white_remaining_ms = initial_time_ms
 		black_remaining_ms = initial_time_ms
 		turn_start_ticks = pygame.time.get_ticks()
-		nonlocal dragging, pending_drag, drag_piece, drag_from, selected_square, engine_pending, engine_thread, engine_queue
+		nonlocal dragging, pending_drag, drag_piece, drag_from, selected_square, engine_pending, engine_thread, engine_queue, eval_cp_target, eval_cp_current
 		dragging = False
 		pending_drag = False
 		drag_piece = None
 		drag_from = None
 		selected_square = None
 		engine_pending = False
+		# reset evaluation bar
+		eval_cp_target = 0.0
+		eval_cp_current = 0.0
 		# clear any running engine worker state so background results aren't applied to new game
 		engine_thread = None
 		try:
@@ -256,20 +259,20 @@ def main(start_time=None, increment=None, human_color=None):
 	clock = pygame.time.Clock()
 
 	# board positioning: board is on the left with captured strips above/below
-	board_area_x = panel_margin
+	# leave room for the evaluation bar to the left
+	board_area_x = values.PANEL_MARGIN + values.EVAL_BAR_WIDTH + values.EVAL_BAR_GAP
 	# nudge board up slightly to avoid overlap with bottom clock/labels
-	board_area_y = values.ELEMENT_GAP + panel_margin + captured_row_h - values.ELEMENT_GAP
+	board_area_y = values.PANEL_MARGIN + values._CAPTURED_ROW_H
 	top_left = (board_area_x, board_area_y)
 
 	# panel occupies the space right of the board, same total height
-	panel_x = board_area_x + board.width + panel_margin
-	panel_y = panel_margin  # start from very top margin
+	panel_x = board_area_x + board.width + values.PANEL_MARGIN
+	panel_y = values.PANEL_MARGIN  # start from very top margin
 	# total height available = captured_row + board + captured_row
-	total_side_h = captured_row_h + board.height + captured_row_h
+	total_side_h = values._CAPTURED_ROW_H + board.height + values._CAPTURED_ROW_H
 
 	# resign button sits inside bottom of the panel
-	resign_button_h = 42
-	resign_button_w = panel_w - 20  # a bit of internal padding
+	# `RESIGN_BUTTON_H` moved into `values.py`; width computed at use-site
 
 	running = True
 	while running:
@@ -409,9 +412,9 @@ def main(start_time=None, increment=None, human_color=None):
 					# resign button click
 					resign_rect = pygame.Rect(
 						panel_x + 10,
-						panel_y + total_side_h - resign_button_h - 10,
-						resign_button_w,
-						resign_button_h,
+						panel_y + total_side_h - values.RESIGN_BUTTON_H - 10,
+						values.PANEL_WIDTH - 20,
+						values.RESIGN_BUTTON_H,
 					)
 					if resign_rect.collidepoint((x, y)) and not is_game_over_ui():
 						game_over_reason = "Resignation"
@@ -438,16 +441,17 @@ def main(start_time=None, increment=None, human_color=None):
 					board = chessboard.create_chessboard(rows=args.rows, cols=args.cols, square_size=args.square_size, margin=args.margin)
 					controller = GameController(max_depth=getattr(args, 'engine_depth', 4), engine_is_black=True)
 					controller.sync_to_ui(board)
-					window_w = getattr(values, 'WINDOW_WIDTH', window_w)
-					window_h = getattr(values, 'WINDOW_HEIGHT', window_h)
+					window_w = values.WINDOW_WIDTH
+					window_h = values.WINDOW_HEIGHT
 					screen = pygame.display.set_mode((window_w, window_h))
 					pygame.display.set_caption('Chess — AI Engine')
-					board_area_x = panel_margin
-					board_area_y = panel_margin + captured_row_h
+					# re-calc board position including eval bar space
+					board_area_x = values.PANEL_MARGIN + values.EVAL_BAR_WIDTH + values.EVAL_BAR_GAP
+					board_area_y = values.PANEL_MARGIN + values._CAPTURED_ROW_H
 					top_left = (board_area_x, board_area_y)
-					panel_x = board_area_x + board.width + panel_margin
-					panel_y = panel_margin
-					total_side_h = captured_row_h + board.height + captured_row_h
+					panel_x = board_area_x + board.width + values.PANEL_MARGIN
+					panel_y = values.PANEL_MARGIN
+					total_side_h = values._CAPTURED_ROW_H + board.height + values._CAPTURED_ROW_H
 					white_time_ms = 0
 					black_time_ms = 0
 					white_remaining_ms = initial_time_ms
@@ -501,8 +505,8 @@ def main(start_time=None, increment=None, human_color=None):
 		# top bar: pieces of White that Black has captured (show White pieces taken)
 		draw_captured_bar(
 			screen, black_caps,
-			board_area_x, panel_margin,
-			board.width, captured_row_h,
+			board_area_x, values.PANEL_MARGIN,
+			board.width, values._CAPTURED_ROW_H,
 			cap_font, (200, 200, 200), "White Captured",
 			bg_color=values.CAPTURED_BG,
 		)
@@ -510,21 +514,90 @@ def main(start_time=None, increment=None, human_color=None):
 		draw_captured_bar(
 			screen, white_caps,
 			board_area_x, board_area_y + board.height,
-			board.width, captured_row_h,
+			board.width, values._CAPTURED_ROW_H,
 			cap_font, (200, 200, 200), "Black Captured",
 			bg_color=values.CAPTURED_BG,
 		)
 
+		# ── evaluation bar (left of board) ─────────────────────────────
+		# animate current eval towards target
+		# small easing factor for smooth motion
+		try:
+			# clamp target to reasonable range
+			clamped_target = max(-values.EVAL_BAR_MAX_CP, min(values.EVAL_BAR_MAX_CP, float(eval_cp_target)))
+		except Exception:
+			clamped_target = 0.0
+		# interpolate
+		eval_cp_current += (clamped_target - eval_cp_current) * 0.12
+
+		# drawing geometry
+		bar_h = board.height
+		bar_w = values.EVAL_BAR_WIDTH
+		bar_x = board_area_x - bar_w - values.EVAL_BAR_GAP
+		bar_y = board_area_y
+
+		# background track
+		track_rect = pygame.Rect(bar_x, bar_y, bar_w, bar_h)
+		pygame.draw.rect(screen, values.EVAL_BAR_BG, track_rect, border_radius=6)
+
+		# center baseline
+		mid_y = bar_y + bar_h // 2
+		pygame.draw.line(screen, (60, 60, 64), (bar_x + 2, mid_y), (bar_x + bar_w - 2, mid_y), 2)
+
+		# compute fill fraction from eval_cp_current
+		frac = max(-1.0, min(1.0, eval_cp_current / values.EVAL_BAR_MAX_CP))
+		# positive -> White advantage (fill upward), negative -> Black advantage (fill downward)
+		if frac > 0:
+			fill_h = int((bar_h / 2) * frac)
+			fill_rect = pygame.Rect(bar_x + 2, int(mid_y - fill_h), bar_w - 4, fill_h)
+			pygame.draw.rect(screen, values.EVAL_BAR_WHITE_COLOR, fill_rect, border_radius=4)
+			marker_y = int(mid_y - fill_h)
+			marker_color = values.EVAL_BAR_WHITE_COLOR
+		elif frac < 0:
+			fill_h = int((bar_h / 2) * (-frac))
+			fill_rect = pygame.Rect(bar_x + 2, mid_y, bar_w - 4, fill_h)
+			pygame.draw.rect(screen, values.EVAL_BAR_BLACK_COLOR, fill_rect, border_radius=4)
+			marker_y = int(mid_y + fill_h)
+			marker_color = values.EVAL_BAR_BLACK_COLOR
+		else:
+			# neutral: small marker at center
+			marker_y = mid_y
+			marker_color = (180, 180, 180)
+
+		# numeric display (centipawns) above the bar
+		try:
+			disp_val = int(eval_cp_current)
+		except Exception:
+			disp_val = 0
+		val_font = chessboard._get_font(14)
+		val_s = val_font.render(f"{disp_val} cp", True, values.EVAL_BAR_TEXT_COLOR)
+		screen.blit(val_s, (bar_x - val_s.get_width() - 6, bar_y + 4))
+
+		# draw a small triangle marker like chess.com at the edge of the fill
+		# center x for marker
+		mx = bar_x + bar_w // 2
+		# clamp marker within track
+		marker_y = max(bar_y + 4, min(bar_y + bar_h - 4, marker_y))
+		tri_h = 8
+		if frac >= 0:
+			# triangle pointing up
+			points = [(mx - 6, marker_y + tri_h), (mx + 6, marker_y + tri_h), (mx, marker_y)]
+		else:
+			# triangle pointing down
+			points = [(mx - 6, marker_y - tri_h), (mx + 6, marker_y - tri_h), (mx, marker_y)]
+		pygame.draw.polygon(screen, marker_color, points)
+		pygame.draw.polygon(screen, (30, 30, 30), points, 1)
+
 		# ── side panel (History + Timer + Resign) ───────────────────────
 		# The panel spans the full height from top margin to bottom of captured bar
-		panel_rect = pygame.Rect(panel_x, panel_y, panel_w, total_side_h)
+		panel_rect = pygame.Rect(panel_x, panel_y, values.PANEL_WIDTH, total_side_h)
 		_draw_rounded_rect(screen, values.PANEL_BG_COLOR, panel_rect, 10, border=2, border_color=values.PANEL_BORDER_COLOR)
 
 		# header bar
-		header_rect = pygame.Rect(panel_x, panel_y, panel_w, 44)
+		header_rect = pygame.Rect(panel_x, panel_y, values.PANEL_WIDTH, 44)
 		_draw_rounded_rect(screen, values.PANEL_HEADER_BG, header_rect, 10)
 		# square off bottom corners of header (overlap with panel body)
-		pygame.draw.rect(screen, values.PANEL_HEADER_BG, pygame.Rect(panel_x, panel_y + 20, panel_w, 24))
+		pygame.draw.rect(screen, values.PANEL_HEADER_BG, pygame.Rect(panel_x, panel_y + 20, values.PANEL_WIDTH, 24))
 
 		title_font = chessboard._get_font(22)
 		title_text = title_font.render("♜  Move History", True, values.PANEL_TITLE_COLOR)
@@ -571,28 +644,32 @@ def main(start_time=None, increment=None, human_color=None):
 		clock_w = min(values.CLOCK_WIDTH, board.width // 3)
 		clock_h = values.CLOCK_HEIGHT
 		clock_x = board_area_x + board.width - clock_w - values.CLOCK_MARGIN
-		top_clock_y = panel_margin + (captured_row_h - clock_h) // 2
+		top_clock_y = values.PANEL_MARGIN + (values._CAPTURED_ROW_H - clock_h) // 2
 		# add a small gap above the bottom clock so it doesn't touch board labels
-		bottom_clock_y = board_area_y + board.height + (captured_row_h - clock_h) // 2 + values.ELEMENT_GAP
+		bottom_clock_y = board_area_y + board.height + (values._CAPTURED_ROW_H - clock_h) // 2 + values.ELEMENT_GAP
 
 		clock_font = chessboard._get_font(26)
 		# top clock (Black)
-		black_active = (controller.board.turn == chess.BLACK) and not is_game_over_ui()
-		black_bg = values.CLOCK_ACTIVE_BG if black_active else values.CLOCK_INACTIVE_BG
-		black_text_color = values.CLOCK_ACTIVE_TEXT if black_active else values.CLOCK_INACTIVE_TEXT
-		top_rect = pygame.Rect(clock_x, top_clock_y, clock_w, clock_h)
-		_draw_rounded_rect(screen, black_bg, top_rect, values.CLOCK_RADIUS)
-		black_time_surf = clock_font.render(fmt_time(black_display), True, black_text_color)
-		screen.blit(black_time_surf, (top_rect.centerx - black_time_surf.get_width() // 2, top_rect.centery - black_time_surf.get_height() // 2))
+		# Only show the black (top) clock if Black is the human player
+		if not controller.engine_is_black:
+			black_active = (controller.board.turn == chess.BLACK) and not is_game_over_ui()
+			black_bg = values.CLOCK_ACTIVE_BG if black_active else values.CLOCK_INACTIVE_BG
+			black_text_color = values.CLOCK_ACTIVE_TEXT if black_active else values.CLOCK_INACTIVE_TEXT
+			top_rect = pygame.Rect(clock_x, top_clock_y, clock_w, clock_h)
+			_draw_rounded_rect(screen, black_bg, top_rect, values.CLOCK_RADIUS)
+			black_time_surf = clock_font.render(fmt_time(black_display), True, black_text_color)
+			screen.blit(black_time_surf, (top_rect.centerx - black_time_surf.get_width() // 2, top_rect.centery - black_time_surf.get_height() // 2))
 
 		# bottom clock (White)
-		white_active = (controller.board.turn == chess.WHITE) and not is_game_over_ui()
-		white_bg = values.CLOCK_ACTIVE_BG if white_active else values.CLOCK_INACTIVE_BG
-		white_text_color = values.CLOCK_ACTIVE_TEXT if white_active else values.CLOCK_INACTIVE_TEXT
-		bottom_rect = pygame.Rect(clock_x, bottom_clock_y, clock_w, clock_h)
-		_draw_rounded_rect(screen, white_bg, bottom_rect, values.CLOCK_RADIUS)
-		white_time_surf = clock_font.render(fmt_time(white_display), True, white_text_color)
-		screen.blit(white_time_surf, (bottom_rect.centerx - white_time_surf.get_width() // 2, bottom_rect.centery - white_time_surf.get_height() // 2))
+		# Only show the white (bottom) clock if White is the human player
+		if controller.engine_is_black:
+			white_active = (controller.board.turn == chess.WHITE) and not is_game_over_ui()
+			white_bg = values.CLOCK_ACTIVE_BG if white_active else values.CLOCK_INACTIVE_BG
+			white_text_color = values.CLOCK_ACTIVE_TEXT if white_active else values.CLOCK_INACTIVE_TEXT
+			bottom_rect = pygame.Rect(clock_x, bottom_clock_y, clock_w, clock_h)
+			_draw_rounded_rect(screen, white_bg, bottom_rect, values.CLOCK_RADIUS)
+			white_time_surf = clock_font.render(fmt_time(white_display), True, white_text_color)
+			screen.blit(white_time_surf, (bottom_rect.centerx - white_time_surf.get_width() // 2, bottom_rect.centery - white_time_surf.get_height() // 2))
 
 		# small turn indicator inside the side panel (keeps layout semantics)
 		turn_label = "White's Turn" if controller.board.turn == chess.WHITE else "Black's Turn"
@@ -604,13 +681,13 @@ def main(start_time=None, increment=None, human_color=None):
 
 		# separator line (maintain previous spacing for history area)
 		sep_y = panel_y + 52 + 44
-		pygame.draw.line(screen, values.PANEL_BORDER_COLOR, (panel_x + 10, sep_y), (panel_x + panel_w - 10, sep_y), 1)
+		pygame.draw.line(screen, values.PANEL_BORDER_COLOR, (panel_x + 10, sep_y), (panel_x + values.PANEL_WIDTH - 10, sep_y), 1)
 
 		# move history list
 		item_font = chessboard._get_font(15)
 		line_height = item_font.get_height() + 5
 		history_top = sep_y + 8
-		history_bottom = panel_y + total_side_h - resign_button_h - 24
+		history_bottom = panel_y + total_side_h - values.RESIGN_BUTTON_H - 24
 		max_lines = max(1, (history_bottom - history_top) // line_height)
 		recent_moves = move_history[-max_lines:]
 
@@ -618,7 +695,7 @@ def main(start_time=None, increment=None, human_color=None):
 		for i, (move_no, color_label, move_text) in enumerate(recent_moves):
 			# alternating subtle background
 			if i % 2 == 0:
-				row_rect = pygame.Rect(panel_x + 4, line_y - 1, panel_w - 8, line_height)
+				row_rect = pygame.Rect(panel_x + 4, line_y - 1, values.PANEL_WIDTH - 8, line_height)
 				pygame.draw.rect(screen, (30, 30, 34), row_rect, border_radius=3)
 			# move number
 			num_color = (95, 95, 105)
@@ -637,7 +714,7 @@ def main(start_time=None, increment=None, human_color=None):
 
 		# Draw evaluation info box to the right of the panel (outside panel)
 		if eval_display_info:
-			info_x = panel_x + panel_w + values.EVAL_BOX_MARGIN
+			info_x = panel_x + values.PANEL_WIDTH + values.EVAL_BOX_MARGIN
 			info_y = panel_y + 12
 			info_w = values.EVAL_BOX_WIDTH
 			info_h = values.EVAL_BOX_HEIGHT
@@ -650,7 +727,7 @@ def main(start_time=None, increment=None, human_color=None):
 			lines = [
 				f"Eval: {eval_display_info.get('eval_cp', 0)} cp",
 				f"Depth: {eval_display_info.get('depth', 0)}",
-				f"Time: {eval_display_info.get('time_ms', 0)} ms",
+				f"Time: {eval_display_info.get('time_s', 0)} sec",
 				f"Nodes: {eval_display_info.get('nodes', 0)}",
 				f"Cutoffs: {eval_display_info.get('cutoffs', 0)}",
 				f"TT hits: {eval_display_info.get('tt_hits', 0)}",
@@ -665,9 +742,9 @@ def main(start_time=None, increment=None, human_color=None):
 		# resign button (inside panel, at bottom)
 		resign_rect = pygame.Rect(
 			panel_x + 10,
-			panel_y + total_side_h - resign_button_h - 10,
-			resign_button_w,
-			resign_button_h,
+			panel_y + total_side_h - values.RESIGN_BUTTON_H - 10,
+			values.PANEL_WIDTH - 20,
+			values.RESIGN_BUTTON_H,
 		)
 		hover_resign = resign_rect.collidepoint(mouse_pos)
 		if is_game_over_ui():
@@ -691,7 +768,7 @@ def main(start_time=None, increment=None, human_color=None):
 			turn_l = "White" if controller.board.turn == chess.WHITE else "Black"
 			status_text = f"Turn: {turn_l}"
 		status_surface = status_font.render(status_text, True, (140, 140, 150))
-		status_y = min(window_h - status_surface.get_height() - 6, board_area_y + board.height + captured_row_h + 4)
+		status_y = min(window_h - status_surface.get_height() - 6, board_area_y + board.height + values._CAPTURED_ROW_H + 4)
 		screen.blit(status_surface, (board_area_x + 4, status_y))
 
 		# ── game over popup ─────────────────────────────────────────────
@@ -788,7 +865,7 @@ def main(start_time=None, increment=None, human_color=None):
 				piece_font = chessboard._get_font(svg_size)
 				fill_color = values.PIECE_COLORS.get(color_key, values.PIECE_COLOR)
 				outline_color = values.PIECE_OUTLINE_COLORS.get(color_key, (128, 128, 128))
-				outline_px = getattr(values, 'PIECE_OUTLINE_PX', 2)
+				outline_px = values.PIECE_OUTLINE_PX
 				text = chessboard._render_outlined_text(piece_font, str(symbol), fill_color, outline_color, outline_px=outline_px)
 				screen.blit(text, (x - text.get_width() // 2, y - text.get_height() // 2))
 
@@ -817,10 +894,10 @@ def main(start_time=None, increment=None, human_color=None):
 						eng_move = engine_queue.get_nowait()
 					except queue.Empty:
 						eng_move = None
-					# update timing for engine side
+					# update timing for engine side (skip if engine clock disabled via values)
 					now = pygame.time.get_ticks()
 					elapsed = now - turn_start_ticks
-					if clock_enabled:
+					if clock_enabled and values.ENGINE_HAS_CLOCK:
 						if controller.engine_is_black:
 							black_remaining_ms -= elapsed
 							if increment_ms:
@@ -829,11 +906,12 @@ def main(start_time=None, increment=None, human_color=None):
 							white_remaining_ms -= elapsed
 							if increment_ms:
 								white_remaining_ms += increment_ms
-					else:
+					elif not clock_enabled and values.ENGINE_HAS_CLOCK:
 						if controller.engine_is_black:
 							black_time_ms += elapsed
 						else:
 							white_time_ms += elapsed
+					# if engine clock is disabled we intentionally do not modify engine timing
 					turn_start_ticks = now
 					if eng_move:
 						# push move on main thread (so UI sync is safe)
@@ -844,6 +922,11 @@ def main(start_time=None, increment=None, human_color=None):
 							eval_display_info = evaluation_values.search_result_to_dict(eng_result)
 						except Exception:
 							eval_display_info = None
+						# update animated evaluation target (centipawns)
+						try:
+							eval_cp_target = float(eval_display_info.get('eval_cp', 0)) if eval_display_info else 0.0
+						except Exception:
+							eval_cp_target = 0.0
 						# extract actual move object
 						move_obj = None
 						if isinstance(eng_result, (list, tuple)) and len(eng_result) > 0:
@@ -869,7 +952,7 @@ def main(start_time=None, increment=None, human_color=None):
 							controller.sync_to_ui(board)
 							label = "Black (Engine)" if controller.engine_is_black else "White (Engine)"
 							add_move(label, move_obj, controller.board)
-					# cleanup
+						# cleanup
 					engine_pending = False
 					engine_thread = None
 		clock.tick(60)

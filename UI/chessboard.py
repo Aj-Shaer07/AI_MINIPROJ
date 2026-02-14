@@ -231,7 +231,7 @@ class ChessBoard:
 		if self._last_piece_font_size != piece_font_size:
 			self._piece_surface_cache.clear()
 			self._last_piece_font_size = piece_font_size
-		outline_px = getattr(values, 'PIECE_OUTLINE_PX', 2)
+		outline_px = values.PIECE_OUTLINE_PX
 		# On Windows the default outlined rendering can make some glyphs
 		# look boxed; prefer no outline there so the unicode glyphs render
 		# as intended. macOS keeps the outline for visual style.
