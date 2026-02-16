@@ -96,7 +96,7 @@ class GameController:
     def engine_move(self):
         if self.board.is_game_over():
             return None
-        move = engine_search.iterative_deepening(self.board, self.max_depth, engine_is_black=self.engine_is_black)
+        move, info = engine_search.search_with_info(self.board, self.max_depth, engine_is_black=self.engine_is_black)
         if move is None:
             return None
         try:

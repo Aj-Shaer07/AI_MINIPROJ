@@ -1,3 +1,4 @@
+import chess
 import time
 from dataclasses import dataclass
 
@@ -6,8 +7,12 @@ from move_generation import generate_legal_moves
 from move_ordering import order_moves
 from transposition import lookup, probe_move, store
 
-REPETITION_PENALTY = 80
-MAX_CHECK_EXTENSIONS = 1
+MAX_CHECK_EXTENSIONS = 3
+
+# LMR: moves searched before reductions kick in
+LMR_FULL_DEPTH_MOVES = 3
+LMR_REDUCTION_LIMIT = 3  # minimum depth to start reducing
+DELTA_MARGIN = 200  # Delta pruning margin in quiescence
 
 
 # -------------------------------------------------
@@ -27,9 +32,14 @@ class SearchStats:
 
 
 # -------------------------------------------------
-# QUIESCENCE SEARCH
+# QUIESCENCE SEARCH (NEGAMAX)
 # -------------------------------------------------
-def quiescence(board, alpha, beta, ply, maximizing, stats: SearchStats):
+def quiescence(board, alpha, beta, ply, stats: SearchStats):
+    """
+    Negamax quiescence search — only considers captures (and all moves
+    when in check) to resolve tactical sequences before returning a
+    static evaluation.
+    """
     stats.qnodes += 1
     if ply > stats.max_qply:
         stats.max_qply = ply
@@ -40,159 +50,207 @@ def quiescence(board, alpha, beta, ply, maximizing, stats: SearchStats):
         return 0
 
     stand_pat = evaluate(board, ply)
+    # In negamax, positive = good for side to move, but our evaluate()
+    # returns positive = good for White. Flip for Black.
+    if not board.turn:  # Black to move
+        stand_pat = -stand_pat
 
-    if maximizing:
-        if stand_pat >= beta:
-            return beta
-        alpha = max(alpha, stand_pat)
-    else:
-        if stand_pat <= alpha:
-            return alpha
-        beta = min(beta, stand_pat)
+    if stand_pat >= beta:
+        return beta
+    if stand_pat > alpha:
+        alpha = stand_pat
 
-    # if in check -> all legal replies
-    if board.is_check():
+    # In check → search all moves; otherwise only captures
+    in_check = board.is_check()
+    if in_check:
         moves = list(board.legal_moves)
     else:
         moves = [m for m in board.legal_moves if board.is_capture(m)]
+
+        # Delta pruning: if even capturing the best piece can't raise
+        # alpha, skip remaining captures (not in check)
+        if stand_pat + 1000 + DELTA_MARGIN < alpha:
+            return alpha
 
     moves = order_moves(board, moves)
 
     for move in moves:
         board.push(move)
-        score = quiescence(board, alpha, beta, ply + 1, not maximizing, stats)
+        score = -quiescence(board, -beta, -alpha, ply + 1, stats)
         board.pop()
 
-        if maximizing:
-            if score >= beta:
-                return beta
-            alpha = max(alpha, score)
-        else:
-            if score <= alpha:
-                return alpha
-            beta = min(beta, score)
+        if score >= beta:
+            return beta
+        if score > alpha:
+            alpha = score
 
-    return alpha if maximizing else beta
+    return alpha
 
 
 # -------------------------------------------------
-# MINIMAX + ALPHA-BETA
+# NEGAMAX SEARCH WITH ALPHA-BETA + PRUNING
 # -------------------------------------------------
-def minimax(board, depth, alpha, beta, maximizing, ply, check_ext_used, stats: SearchStats):
+def negamax(board, depth, alpha, beta, ply, check_ext_used, stats,
+            killers, history):
+    """
+    Negamax alpha-beta search with:
+      - Transposition table probing
+      - Null-move pruning
+      - Late-move reductions (LMR)
+      - Principal variation search (PVS)
+      - Check extensions
+      - Killer / history heuristics
+    """
     stats.nodes += 1
     if ply > stats.max_ply:
         stats.max_ply = ply
 
+    # ── Repetition draw ──
+    if board.is_repetition(2):
+        return 0, None
+
+    # ── TT probe ──
     cached = lookup(board, depth, alpha, beta, stats=stats)
-    if cached:
+    if cached is not None:
         return cached
 
-    original_alpha, original_beta = alpha, beta
+    original_alpha = alpha
 
-    # repetition control
-    if board.is_repetition(2):
-        penalty = -REPETITION_PENALTY if maximizing else REPETITION_PENALTY
-        return penalty, None
-
-    # mate-in-1 detection
-    for move in board.legal_moves:
-        board.push(move)
-        if board.is_checkmate():
-            board.pop()
-            return (MATE_SCORE - ply if maximizing else -MATE_SCORE + ply), move
-        board.pop()
-
+    # ── Terminal / game-over ──
     if board.is_game_over():
-        return evaluate(board, ply), None
+        score = evaluate(board, ply)
+        if not board.turn:
+            score = -score
+        return score, None
 
-    # leaf
-    if depth == 0:
-        if board.is_check():
-            return quiescence(board, alpha, beta, ply, maximizing, stats), None
-        return evaluate(board, ply), None
+    # ── Leaf node → quiescence ──
+    if depth <= 0:
+        return quiescence(board, alpha, beta, ply, stats), None
 
-    best_move = None
+    in_check = board.is_check()
     tt_move = probe_move(board)
 
-    moves = order_moves(board, generate_legal_moves(board))
-    if tt_move:
-        moves = [tt_move] + [m for m in moves if m != tt_move]
+    # ── Null Move Pruning ──
+    # Skip when: in check, at root, low depth, or very few pieces (zugzwang risk)
+    if (not in_check and depth >= 3 and ply > 0
+            and _has_non_pawn_material(board)):
+        board.push(chess.Move.null())
+        # Reduced-depth search
+        null_score, _ = negamax(board, depth - 3, -beta, -beta + 1, ply + 1,
+                                check_ext_used, stats, killers, history)
+        null_score = -null_score
+        board.pop()
 
-    if maximizing:
-        best_value = -float("inf")
+        if null_score >= beta:
+            stats.cutoffs += 1
+            return beta, None
 
-        for move in moves:
-            board.push(move)
+    # ── Generate and order moves ──
+    moves = generate_legal_moves(board)
+    ply_killers = killers.get(ply, [])
+    moves = order_moves(board, moves, tt_move=tt_move,
+                        killers=ply_killers, history=history)
 
-            new_depth = depth - 1
-            new_ext = check_ext_used
+    if not moves:
+        # No legal moves: checkmate or stalemate
+        score = evaluate(board, ply)
+        if not board.turn:
+            score = -score
+        return score, None
 
-            # limited check extension
-            if board.is_check() and check_ext_used < MAX_CHECK_EXTENSIONS:
-                new_depth = depth
-                new_ext += 1
+    best_move = None
+    best_value = -float("inf")
+    moves_searched = 0
 
-            value, _ = minimax(
-                board,
-                new_depth,
-                alpha,
-                beta,
-                False,
-                ply + 1,
-                new_ext,
-                stats
-            )
-            board.pop()
+    for move in moves:
+        is_capture = board.is_capture(move)
 
-            if value > best_value:
-                best_value = value
-                best_move = move
+        board.push(move)
 
-            alpha = max(alpha, value)
-            if beta <= alpha:
-                stats.cutoffs += 1
-                break
+        new_depth = depth - 1
+        new_ext = check_ext_used
 
-    else:
-        best_value = float("inf")
+        # ── Check extension ──
+        if board.is_check() and check_ext_used < MAX_CHECK_EXTENSIONS:
+            new_depth = depth  # don't reduce depth if extending
+            new_ext += 1
 
-        for move in moves:
-            board.push(move)
+        # ── PVS + LMR ──
+        if moves_searched == 0:
+            # First move: full window search
+            value, _ = negamax(board, new_depth, -beta, -alpha, ply + 1,
+                               new_ext, stats, killers, history)
+            value = -value
+        else:
+            # ── Late Move Reductions ──
+            reduction = 0
+            if (moves_searched >= LMR_FULL_DEPTH_MOVES
+                    and depth >= LMR_REDUCTION_LIMIT
+                    and not in_check
+                    and not is_capture
+                    and not move.promotion):
+                reduction = 1
+                if moves_searched >= 6:
+                    reduction = 2
 
-            new_depth = depth - 1
-            new_ext = check_ext_used
+            # Zero-window search (PVS) with possible LMR
+            value, _ = negamax(board, new_depth - reduction, -alpha - 1, -alpha,
+                               ply + 1, new_ext, stats, killers, history)
+            value = -value
 
-            if board.is_check() and check_ext_used < MAX_CHECK_EXTENSIONS:
-                new_depth = depth
-                new_ext += 1
+            # Re-search at full depth if LMR search improved alpha
+            if reduction > 0 and value > alpha:
+                value, _ = negamax(board, new_depth, -alpha - 1, -alpha,
+                                   ply + 1, new_ext, stats, killers, history)
+                value = -value
 
-            value, _ = minimax(
-                board,
-                new_depth,
-                alpha,
-                beta,
-                True,
-                ply + 1,
-                new_ext,
-                stats
-            )
-            board.pop()
+            # Re-search with full window if zero-window failed high
+            if value > alpha and value < beta:
+                value, _ = negamax(board, new_depth, -beta, -alpha,
+                                   ply + 1, new_ext, stats, killers, history)
+                value = -value
 
-            if value < best_value:
-                best_value = value
-                best_move = move
+        board.pop()
+        moves_searched += 1
 
-            beta = min(beta, value)
-            if beta <= alpha:
-                stats.cutoffs += 1
-                break
+        if value > best_value:
+            best_value = value
+            best_move = move
 
-    store(board, depth, best_value, best_move, original_alpha, original_beta)
+        if value > alpha:
+            alpha = value
+            # Update history heuristic for quiet moves that improve alpha
+            if not is_capture and not move.promotion:
+                h_key = (board.turn, move.from_square, move.to_square)
+                history[h_key] = history.get(h_key, 0) + depth * depth
+
+        if alpha >= beta:
+            stats.cutoffs += 1
+            # Store killer move
+            if not is_capture and not move.promotion:
+                if ply not in killers:
+                    killers[ply] = []
+                if move not in killers[ply]:
+                    killers[ply].insert(0, move)
+                    if len(killers[ply]) > 2:
+                        killers[ply].pop()
+            break
+
+    store(board, depth, best_value, best_move, original_alpha, beta)
     return best_value, best_move
 
 
+def _has_non_pawn_material(board):
+    """Check if the side to move has at least one non-pawn, non-king piece."""
+    color = board.turn
+    for pt in (chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN):
+        if board.pieces(pt, color):
+            return True
+    return False
+
+
 # -------------------------------------------------
-# ITERATIVE DEEPENING (RETURNS FULL INFO)
+# ITERATIVE DEEPENING WITH ASPIRATION WINDOWS
 # -------------------------------------------------
 def iterative_deepening(board, max_depth, engine_is_black=True):
     stats = SearchStats()
@@ -202,24 +260,71 @@ def iterative_deepening(board, max_depth, engine_is_black=True):
     best_depth = 0
     best_value = 0
 
+    killers = {}   # {ply: [move, move]}
+    history = {}   # {(color, from_sq, to_sq): int}
+
+    # Endgame depth boost: when few pieces remain, search deeper
+    # because the branching factor is much lower
+    total_pieces = len(board.piece_map())
+    if total_pieces <= 6:
+        max_depth = max(max_depth, max_depth + 3)  # K+Q vs K, K+R vs K
+    elif total_pieces <= 10:
+        max_depth = max(max_depth, max_depth + 2)  # simple endgames
+    elif total_pieces <= 16:
+        max_depth = max(max_depth, max_depth + 1)  # middlegame-to-endgame
+
+    prev_score = 0
+    ASPIRATION_WINDOW = 50
+
     for depth in range(1, max_depth + 1):
-        value, move = minimax(
+        if depth <= 2:
+            # No aspiration window at very low depths
+            alpha = -1_000_000
+            beta = 1_000_000
+        else:
+            # Aspiration window around previous score
+            alpha = prev_score - ASPIRATION_WINDOW
+            beta = prev_score + ASPIRATION_WINDOW
+
+        value, move = negamax(
             board,
             depth,
-            -1e9,
-            1e9,
-            maximizing=not engine_is_black,
+            alpha,
+            beta,
             ply=0,
             check_ext_used=0,
-            stats=stats
+            stats=stats,
+            killers=killers,
+            history=history,
         )
+
+        # Re-search with full window on fail-low or fail-high
+        if value <= alpha or value >= beta:
+            value, move = negamax(
+                board,
+                depth,
+                -1_000_000,
+                1_000_000,
+                ply=0,
+                check_ext_used=0,
+                stats=stats,
+                killers=killers,
+                history=history,
+            )
 
         if move is not None:
             best_move = move
             best_depth = depth
             best_value = value
 
+        prev_score = value
+
     elapsed = time.time() - start
+
+    # Convert negamax score back to White-positive convention for display
+    if engine_is_black:
+        best_value = -best_value
+
     return best_move, best_value, best_depth, stats, elapsed
 
 
@@ -227,6 +332,25 @@ def iterative_deepening(board, max_depth, engine_is_black=True):
 # UI HELPER (FOR GUI / TERMINAL)
 # -------------------------------------------------
 def search_with_info(board, max_depth, engine_is_black=True):
+    # ── Opening book: forced replies ──
+    # Play ...e5 against 1.e4 and ...d5 against 1.d4
+    if board.fullmove_number == 1 and board.turn == chess.BLACK:
+        last_move = board.peek() if board.move_stack else None
+        if last_move:
+            forced = None
+            if last_move == chess.Move.from_uci("e2e4"):
+                forced = chess.Move.from_uci("e7e5")
+            elif last_move == chess.Move.from_uci("d2d4"):
+                forced = chess.Move.from_uci("d7d5")
+            if forced and forced in board.legal_moves:
+                info = {
+                    "move": forced, "eval_cp": 0, "depth": 0,
+                    "time_ms": 0, "nodes": 0, "qnodes": 0,
+                    "cutoffs": 0, "tt_hits": 0, "tt_probes": 0,
+                    "max_ply": 0, "max_qply": 0,
+                }
+                return forced, info
+
     move, value, depth, stats, elapsed = iterative_deepening(
         board, max_depth, engine_is_black=engine_is_black
     )
@@ -258,3 +382,5 @@ def format_search_info(info: dict) -> str:
         f"MaxPly: {info['max_ply']} | MaxQPly: {info['max_qply']} | "
         f"Time: {info['time_ms']} ms"
     )
+
+

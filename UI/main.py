@@ -882,8 +882,8 @@ def main(start_time=None, increment=None, human_color=None):
 					import algorithms.search as engine_search
 					# search on a copy so we don't mutate the UI/main thread board
 					board_copy = controller.board.copy()
-					move = engine_search.iterative_deepening(board_copy, controller.max_depth, engine_is_black=controller.engine_is_black)
-					engine_queue.put(move)
+					move, info = engine_search.search_with_info(board_copy, controller.max_depth, engine_is_black=controller.engine_is_black)
+					engine_queue.put((move, info))
 				engine_thread = threading.Thread(target=_engine_worker, daemon=True)
 				engine_thread.start()
 			else:

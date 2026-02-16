@@ -4,7 +4,7 @@ import chess
 import algorithms.search as engine_search
 from typing import Optional
 
-MAX_DEPTH = 4
+MAX_DEPTH = 5
 
 
 def print_terminal(board: chess.Board, last_move_san: Optional[str] = None) -> None:
