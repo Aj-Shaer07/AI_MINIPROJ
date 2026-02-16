@@ -89,6 +89,8 @@ def search_result_to_dict(result: Any) -> Dict[str, Any]:
             "tt_probes": _to_int(info.get("tt_probes", 0)),
             "max_ply": _to_int(info.get("max_ply", 0)),
             "max_qply": _to_int(info.get("max_qply", 0)),
+            # preserve mate information if engine provided it (e.g. 'mate' or 'mate_in')
+            "mate": info.get("mate", info.get("mate_in", None)),
         }
 
     # If result is a tuple/list
@@ -124,6 +126,8 @@ def search_result_to_dict(result: Any) -> Dict[str, Any]:
                 "tt_probes": _extract_stats_field(stats, "tt_probes", 0),
                 "max_ply": _extract_stats_field(stats, "max_ply", 0),
                 "max_qply": _extract_stats_field(stats, "max_qply", 0),
+                # iterative_deepening / value form typically doesn't include mate; preserve as None
+                "mate": None,
             }
 
         # other form: (move, info_dict) returned by search_with_info caller

@@ -25,7 +25,14 @@ EVAL_BOX_TEXT_COLOR = (190, 190, 200)
 # Evaluation bar (vertical) rendered to the left of the board
 EVAL_BAR_WIDTH = 22
 EVAL_BAR_GAP = 8
-EVAL_BAR_MAX_CP = 10000.0  # clamp mapping range (+/- centipawns)
+EVAL_BAR_MAX_CP = 5000.0  # clamp mapping range (+/- centipawns)
+# Extreme-evaluation handling: when absolute centipawn is in the
+# EXTREME range map the bar to a near-full fill (but not completely
+# to the edge). If a mate is detected, fill fully.
+EVAL_BAR_EXTREME_MIN_CP = 3000.0  # lower bound (inclusive) for extreme mapping
+EVAL_BAR_EXTREME_MAX_CP = 7000.0  # upper bound for extreme mapping
+EVAL_BAR_EXTREME_FILL = 0.98     # fraction of full bar to fill for extreme CPs
+EVAL_BAR_MATE_FILL = 1.0         # fraction for mate (full fill)
 EVAL_BAR_BG = (28, 28, 32)
 EVAL_BAR_WHITE_COLOR = (84, 196, 129)  # green for White advantage
 EVAL_BAR_BLACK_COLOR = (231, 76, 60)   # red for Black advantage

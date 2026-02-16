@@ -549,13 +549,35 @@ def main(start_time=None, increment=None, human_color=None, fen=None):
 		)
 
 		# ── evaluation bar (left of board) ─────────────────────────────
-		# animate current eval towards target
+		# animate current eval towards target with special handling for
+		# extreme centipawn ranges and mate signals.
 		# small easing factor for smooth motion
 		try:
-			# clamp target to reasonable range
-			clamped_target = max(-values.EVAL_BAR_MAX_CP, min(values.EVAL_BAR_MAX_CP, float(eval_cp_target)))
+			raw = float(eval_cp_target)
 		except Exception:
-			clamped_target = 0.0
+			raw = 0.0
+
+		# detect mate information if provided by normalized eval dict
+		mate_flag = None
+		try:
+			if eval_display_info:
+				mate_flag = eval_display_info.get('mate')
+		except Exception:
+			mate_flag = None
+
+		sign = 1.0 if raw >= 0 else -1.0
+		# determine a target fraction (-1.0..1.0) for display
+		if mate_flag is not None:
+			target_frac = sign * values.EVAL_BAR_MATE_FILL
+		elif values.EVAL_BAR_EXTREME_MIN_CP <= abs(raw) <= values.EVAL_BAR_EXTREME_MAX_CP:
+			# extreme CPs map to a near-full fill but not completely to the edge
+			target_frac = sign * values.EVAL_BAR_EXTREME_FILL
+		else:
+			# normal linear mapping to configured max
+			target_frac = max(-1.0, min(1.0, raw / values.EVAL_BAR_MAX_CP))
+
+		# target in centipawns to animate towards
+		clamped_target = target_frac * values.EVAL_BAR_MAX_CP
 		# interpolate
 		eval_cp_current += (clamped_target - eval_cp_current) * 0.12
 
