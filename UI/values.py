@@ -93,6 +93,12 @@ POPUP_ACCENT = (230, 188, 151)
 # Captured pieces bar
 CAPTURED_BG = (24, 24, 28)
 
+# Promotion popup styling
+PROMO_POPUP_BG = (32, 32, 38)
+PROMO_POPUP_BORDER = (70, 70, 76)
+PROMO_POPUP_HOVER = (60, 60, 68)
+PROMO_POPUP_RADIUS = 8
+
 # Clock styling and spacing
 # When active the clock should invert: light background + dark text.
 CLOCK_WIDTH = 100

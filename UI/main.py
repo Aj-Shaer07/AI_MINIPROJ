@@ -309,6 +309,7 @@ def main(start_time=None, increment=None, human_color=None, fen=None):
 	engine_pending = False
 	drag_threshold = 6
 	hover_resign = False
+	promotion_pending = None  # (from_r, from_c, to_r, to_c) when awaiting promotion choice
 
 	window_w = args.window_width
 	window_h = args.window_height
@@ -342,6 +343,47 @@ def main(start_time=None, increment=None, human_color=None, fen=None):
 			if event.type == pygame.QUIT:
 				running = False
 			elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+				# ── handle promotion popup click ──
+				if promotion_pending is not None:
+					x, y = event.pos
+					pfr, pfc, ptr, ptc = promotion_pending
+					# compute popup geometry (same as rendering below)
+					promo_pieces = ['q', 'r', 'b', 'n']
+					promo_sq_size = board.square_size
+					promo_popup_w = promo_sq_size * 4 + 12
+					promo_popup_h = promo_sq_size + 12
+					# center popup horizontally on the target column
+					target_px = top_left[0] + board.margin + ptc * board.square_size + board.square_size // 2
+					promo_popup_x = target_px - promo_popup_w // 2
+					# place popup just above or below the promotion rank
+					if ptr == 0:  # promoting at top (white moving up)
+						promo_popup_y = top_left[1] + board.margin + ptr * board.square_size
+					else:  # promoting at bottom
+						promo_popup_y = top_left[1] + board.margin + (ptr + 1) * board.square_size - promo_popup_h
+					clicked_promo = None
+					for i, pc in enumerate(promo_pieces):
+						cell_x = promo_popup_x + 6 + i * promo_sq_size
+						cell_y = promo_popup_y + 6
+						cell_rect = pygame.Rect(cell_x, cell_y, promo_sq_size, promo_sq_size)
+						if cell_rect.collidepoint(x, y):
+							clicked_promo = pc
+							break
+					if clicked_promo:
+						ok, move = controller.try_player_move_with_promotion(pfr, pfc, ptr, ptc, clicked_promo)
+						if ok:
+							now = pygame.time.get_ticks()
+							apply_move_timing(False, now)
+							controller.print_terminal()
+							controller.sync_to_ui(board)
+							add_move("White" if human_color_bool == chess.WHITE else "Black", move, controller.board)
+							engine_pending = True
+						promotion_pending = None
+					else:
+						# clicked outside popup — cancel promotion
+						promotion_pending = None
+						# restore the dragged piece if it was removed during drag
+						controller.sync_to_ui(board)
+					continue
 				if is_game_over_ui():
 					continue
 				x, y = event.pos
@@ -353,14 +395,18 @@ def main(start_time=None, increment=None, human_color=None, fen=None):
 					if selected_square and (r, c) in board.possible_moves:
 						# if it's the human's turn, execute move immediately
 						if controller.board.turn == human_color_bool:
-							ok, move = controller.try_player_move(selected_square[0], selected_square[1], r, c)
-							if ok:
-								now = pygame.time.get_ticks()
-								apply_move_timing(False, now)
-								controller.print_terminal()
-								controller.sync_to_ui(board)
-								add_move("White" if human_color_bool == chess.WHITE else "Black", move, controller.board)
-								engine_pending = True
+							# check if this is a promotion move
+							if controller.is_promotion_move(selected_square[0], selected_square[1], r, c):
+								promotion_pending = (selected_square[0], selected_square[1], r, c)
+							else:
+								ok, move = controller.try_player_move(selected_square[0], selected_square[1], r, c)
+								if ok:
+									now = pygame.time.get_ticks()
+									apply_move_timing(False, now)
+									controller.print_terminal()
+									controller.sync_to_ui(board)
+									add_move("White" if human_color_bool == chess.WHITE else "Black", move, controller.board)
+									engine_pending = True
 						# otherwise store a premove to be executed when it's the human's turn
 						else:
 							premove = (selected_square[0], selected_square[1], r, c)
@@ -432,16 +478,22 @@ def main(start_time=None, increment=None, human_color=None, fen=None):
 					sq = board.pixel_to_square(x, y, top_left=top_left)
 					if sq:
 						r2, c2 = sq
-						ok, move = controller.try_player_move(drag_from[0], drag_from[1], r2, c2)
-						if ok:
-							now = pygame.time.get_ticks()
-							apply_move_timing(False, now)
-							controller.print_terminal()
-							controller.sync_to_ui(board)
-							add_move("White", move, controller.board)
-							engine_pending = True
-						else:
+						# check if this is a promotion move
+						if controller.is_promotion_move(drag_from[0], drag_from[1], r2, c2):
+							# put the piece back and show promotion popup
 							board.set_piece(drag_from[0], drag_from[1], drag_piece)
+							promotion_pending = (drag_from[0], drag_from[1], r2, c2)
+						else:
+							ok, move = controller.try_player_move(drag_from[0], drag_from[1], r2, c2)
+							if ok:
+								now = pygame.time.get_ticks()
+								apply_move_timing(False, now)
+								controller.print_terminal()
+								controller.sync_to_ui(board)
+								add_move("White", move, controller.board)
+								engine_pending = True
+							else:
+								board.set_piece(drag_from[0], drag_from[1], drag_piece)
 					else:
 						board.set_piece(drag_from[0], drag_from[1], drag_piece)
 					dragging = False

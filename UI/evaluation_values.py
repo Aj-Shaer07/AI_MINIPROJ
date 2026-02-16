@@ -81,7 +81,7 @@ def search_result_to_dict(result: Any) -> Dict[str, Any]:
             "move_uci": move_uci,
             "eval_cp": _to_int(info.get("eval_cp", info.get("value", 0))),
             "depth": _to_int(info.get("depth", 0)),
-            "time_s": _to_int(info.get("time_s", info.get("elapsed_s", 0))),
+            "time_s": round(info.get("time_ms", 0) / 1000, 2) if info.get("time_ms") else round(float(info.get("time_s", info.get("elapsed_s", 0))), 2),
             "nodes": _to_int(info.get("nodes", 0)),
             "qnodes": _to_int(info.get("qnodes", 0)),
             "cutoffs": _to_int(info.get("cutoffs", 0)),
@@ -118,7 +118,7 @@ def search_result_to_dict(result: Any) -> Dict[str, Any]:
                 "move_uci": move_uci,
                 "eval_cp": _to_int(value, 0),
                 "depth": _to_int(depth, 0),
-                "time_s": elapsed_ms/1000, # convert back to seconds
+                "time_s": round(elapsed_ms/1000, 2), # convert back to seconds
                 "nodes": _extract_stats_field(stats, "nodes", 0),
                 "qnodes": _extract_stats_field(stats, "qnodes", 0),
                 "cutoffs": _extract_stats_field(stats, "cutoffs", 0),

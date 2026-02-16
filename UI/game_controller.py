@@ -29,6 +29,41 @@ class GameController:
         rank = str(rows - int(r))
         return f"{file}{rank}"
 
+    def is_promotion_move(self, from_r: int, from_c: int, to_r: int, to_c: int) -> bool:
+        """Return True if moving from (from_r,from_c) to (to_r,to_c) is a pawn promotion."""
+        from_sq = self.coords_to_square_name(from_r, from_c)
+        to_sq = self.coords_to_square_name(to_r, to_c)
+        uci = from_sq + to_sq
+        # Check if any promotion variant of this move is legal
+        for promo in ['q', 'r', 'b', 'n']:
+            try:
+                move = chess.Move.from_uci(uci + promo)
+            except Exception:
+                continue
+            if move in self.board.legal_moves:
+                return True
+        return False
+
+    def try_player_move_with_promotion(self, from_r: int, from_c: int, to_r: int, to_c: int, promo: str) -> Tuple[bool, Optional[chess.Move]]:
+        """Execute a move with an explicit promotion piece character ('q','r','b','n')."""
+        from_sq = self.coords_to_square_name(from_r, from_c)
+        to_sq = self.coords_to_square_name(to_r, to_c)
+        uci = from_sq + to_sq + promo
+        try:
+            move = chess.Move.from_uci(uci)
+        except Exception:
+            return False, None
+        if move in self.board.legal_moves:
+            try:
+                san = self.board.san(move)
+            except Exception:
+                san = None
+            self.board.push(move)
+            self.last_move = move
+            self.last_move_san = san
+            return True, move
+        return False, None
+
     def try_player_move(self, from_r: int, from_c: int, to_r: int, to_c: int) -> Tuple[bool, Optional[chess.Move]]:
         from_sq = self.coords_to_square_name(from_r, from_c)
         to_sq = self.coords_to_square_name(to_r, to_c)
