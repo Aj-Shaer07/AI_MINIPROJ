@@ -188,13 +188,14 @@ def main(start_time=None, increment=None, human_color=None, fen=None):
 		white_remaining_ms = initial_time_ms
 		black_remaining_ms = initial_time_ms
 		turn_start_ticks = pygame.time.get_ticks()
-		nonlocal dragging, pending_drag, drag_piece, drag_from, selected_square, engine_pending, engine_thread, engine_queue, eval_cp_target, eval_cp_current, engine_cancel_event
+		nonlocal dragging, pending_drag, drag_piece, drag_from, selected_square, engine_pending, engine_thread, engine_queue, eval_cp_target, eval_cp_current, engine_cancel_event, promotion_pending
 		dragging = False
 		pending_drag = False
 		drag_piece = None
 		drag_from = None
 		selected_square = None
 		engine_pending = False
+		promotion_pending = None
 		# reset evaluation bar
 		eval_cp_target = 0.0
 		eval_cp_current = 0.0
@@ -1006,6 +1007,59 @@ def main(start_time=None, increment=None, human_color=None, fen=None):
 				outline_px = values.PIECE_OUTLINE_PX
 				text = chessboard._render_outlined_text(piece_font, str(symbol), fill_color, outline_color, outline_px=outline_px)
 				screen.blit(text, (x - text.get_width() // 2, y - text.get_height() // 2))
+
+		# ── promotion popup overlay ──────────────────────────────────────
+		if promotion_pending is not None:
+			# dim overlay
+			overlay = pygame.Surface((window_w, window_h), pygame.SRCALPHA)
+			overlay.fill((0, 0, 0, 100))
+			screen.blit(overlay, (0, 0))
+
+			pfr, pfc, ptr, ptc = promotion_pending
+			promo_pieces_list = ['q', 'r', 'b', 'n']
+			promo_piece_types = {
+				'q': chess.QUEEN, 'r': chess.ROOK,
+				'b': chess.BISHOP, 'n': chess.KNIGHT
+			}
+			promo_sq_size = board.square_size
+			promo_popup_w = promo_sq_size * 4 + 12
+			promo_popup_h = promo_sq_size + 12
+			# center popup on target column
+			target_px = top_left[0] + board.margin + ptc * board.square_size + board.square_size // 2
+			promo_popup_x = target_px - promo_popup_w // 2
+			if ptr == 0:
+				promo_popup_y = top_left[1] + board.margin + ptr * board.square_size
+			else:
+				promo_popup_y = top_left[1] + board.margin + (ptr + 1) * board.square_size - promo_popup_h
+
+			popup_rect = pygame.Rect(promo_popup_x, promo_popup_y, promo_popup_w, promo_popup_h)
+			_draw_shadow(screen, popup_rect, radius=values.PROMO_POPUP_RADIUS, shadow_offset=6, alpha=80)
+			_draw_rounded_rect(screen, values.PROMO_POPUP_BG, popup_rect, values.PROMO_POPUP_RADIUS, border=2, border_color=values.PROMO_POPUP_BORDER)
+
+			promo_font = chessboard._get_font(int(promo_sq_size * 0.7))
+			for i, pc in enumerate(promo_pieces_list):
+				cell_x = promo_popup_x + 6 + i * promo_sq_size
+				cell_y = promo_popup_y + 6
+				cell_rect = pygame.Rect(cell_x, cell_y, promo_sq_size, promo_sq_size)
+				# hover highlight
+				if cell_rect.collidepoint(mouse_pos):
+					_draw_rounded_rect(screen, values.PROMO_POPUP_HOVER, cell_rect, 6)
+				# render piece symbol using human's color
+				pt = promo_piece_types[pc]
+				sym_idx = 0 if human_color_bool == chess.BLACK else 1
+				sym = values.PIECE_SYMBOL_MAP[pt][sym_idx]
+				color_key = 'white' if human_color_bool == chess.WHITE else 'black'
+				# try surface first, fall back to text
+				p_surf = pieces.get_piece_surface_for_symbol(str(sym), int(promo_sq_size * 0.8))
+				if p_surf is None:
+					p_surf = pieces.get_piece_surface(pieces.name_from_symbol(str(sym)), color_key, int(promo_sq_size * 0.8))
+				if p_surf is not None:
+					screen.blit(p_surf, (cell_rect.centerx - p_surf.get_width() // 2, cell_rect.centery - p_surf.get_height() // 2))
+				else:
+					fill_color = values.PIECE_COLORS.get(color_key, values.PIECE_COLOR)
+					outline_color = values.PIECE_OUTLINE_COLORS.get(color_key, (128, 128, 128))
+					txt = chessboard._render_outlined_text(promo_font, str(sym), fill_color, outline_color, outline_px=values.PIECE_OUTLINE_PX)
+					screen.blit(txt, (cell_rect.centerx - txt.get_width() // 2, cell_rect.centery - txt.get_height() // 2))
 
 		pygame.display.flip()
 
