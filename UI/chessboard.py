@@ -88,6 +88,8 @@ class ChessBoard:
 		self.highlight: Optional[Tuple[int, int]] = None
 		self.king_in_check: Optional[Tuple[int, int]] = None
 		self.possible_moves: List[Tuple[int, int]] = []
+		# last_move stored as (from_r, from_c, to_r, to_c)
+		self.last_move = None
 		# premove stored as (from_r, from_c, to_r, to_c)
 		self.premove = None
 		# Cache rendered piece surfaces: key = (symbol, size, fill_color, outline_color, outline_px)
@@ -121,6 +123,47 @@ class ChessBoard:
 				)
 				color = self.light_color if (r + c) % 2 == 0 else self.dark_color
 				pygame.draw.rect(surface, color, rect)
+
+		# draw last-move highlight (source + destination) and subtle arrow
+		if getattr(self, 'last_move', None):
+			try:
+				fr, fc, tr, tc = self.last_move
+				sq = self.square_size
+				half = sq // 2
+				# translucent square overlay on origin and destination
+				over = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+				for rr, cc in ((fr, fc), (tr, tc)):
+					if 0 <= rr < self.rows and 0 <= cc < self.cols:
+						rect_rel = pygame.Rect(self.margin + cc * sq, self.margin + rr * sq, sq, sq)
+						pygame.draw.rect(over, values.LAST_MOVE_COLOR, rect_rel)
+				# draw thin arrow from origin center to dest center
+				ori = (self.margin + fc * sq + half, self.margin + fr * sq + half)
+				dst = (self.margin + tc * sq + half, self.margin + tr * sq + half)
+				thick = max(2, sq // 14)
+				# slightly darker color for arrow (reduce alpha)
+				arrow_col = values.LAST_MOVE_COLOR
+				pygame.draw.line(over, arrow_col, ori, dst, thick)
+				# arrowhead
+				import math
+				dx = dst[0] - ori[0]
+				dy = dst[1] - ori[1]
+				dist = math.hypot(dx, dy)
+				if dist > 0:
+					norm_x = dx / dist
+					norm_y = dy / dist
+					size = max(6, sq // 10)
+					base_x = dst[0] - norm_x * (size * 0.6)
+					base_y = dst[1] - norm_y * (size * 0.6)
+					perp_x = -norm_y
+					perp_y = norm_x
+					p1 = (dst[0], dst[1])
+					p2 = (base_x + perp_x * (size * 0.5), base_y + perp_y * (size * 0.5))
+					p3 = (base_x - perp_x * (size * 0.5), base_y - perp_y * (size * 0.5))
+					pygame.draw.polygon(over, arrow_col, [p1, p2, p3])
+				# blit overlay
+				surface.blit(over, (tx, ty))
+			except Exception:
+				pass
 
 		# highlight square
 		if self.highlight is not None:

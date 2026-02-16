@@ -152,6 +152,22 @@ class GameController:
         else:
             ui_board.king_in_check = None
 
+        # set last move on UI board (as row/col coordinates) so UI can render it
+        if getattr(self, 'last_move', None):
+            from_sq = self.last_move.from_square
+            to_sq = self.last_move.to_square
+            f_file = chess.square_file(from_sq)
+            f_rank = chess.square_rank(from_sq)
+            t_file = chess.square_file(to_sq)
+            t_rank = chess.square_rank(to_sq)
+            fr = rows - 1 - f_rank
+            fc = f_file
+            tr = rows - 1 - t_rank
+            tc = t_file
+            ui_board.last_move = (fr, fc, tr, tc)
+        else:
+            ui_board.last_move = None
+
         ui_board.possible_moves = []
 
     def print_terminal(self):

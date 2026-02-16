@@ -53,6 +53,9 @@ MOVE_DOT_COLOR = (100, 160, 80, 180)
 # Premove visualization (translucent blue)
 PREMOVE_COLOR = (80, 140, 220, 120)
 
+# Last-move highlight (source + destination) — pale yellow with transparency
+LAST_MOVE_COLOR = (246, 246, 110, 120)
+
 # Panel colors – clean dark grey
 PANEL_BG_COLOR = (26, 26, 30)
 PANEL_BORDER_COLOR = (50, 50, 55)

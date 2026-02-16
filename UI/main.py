@@ -1,4 +1,3 @@
-
 import argparse
 import pygame
 import sys
@@ -11,6 +10,9 @@ import threading
 import queue
 from game_controller import GameController
 import evaluation_values
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 def parse_args():
@@ -152,6 +154,8 @@ def main(start_time=None, increment=None, human_color=None, fen=None):
 	# Engine worker thread/queue for non-blocking search
 	engine_thread = None
 	engine_queue = queue.Queue()
+	# cancellation event used to ignore/stop background worker results
+	engine_cancel_event = threading.Event()
 
 	move_history = []
 	game_over_reason = None
@@ -184,7 +188,7 @@ def main(start_time=None, increment=None, human_color=None, fen=None):
 		white_remaining_ms = initial_time_ms
 		black_remaining_ms = initial_time_ms
 		turn_start_ticks = pygame.time.get_ticks()
-		nonlocal dragging, pending_drag, drag_piece, drag_from, selected_square, engine_pending, engine_thread, engine_queue, eval_cp_target, eval_cp_current
+		nonlocal dragging, pending_drag, drag_piece, drag_from, selected_square, engine_pending, engine_thread, engine_queue, eval_cp_target, eval_cp_current, engine_cancel_event
 		dragging = False
 		pending_drag = False
 		drag_piece = None
@@ -194,13 +198,68 @@ def main(start_time=None, increment=None, human_color=None, fen=None):
 		# reset evaluation bar
 		eval_cp_target = 0.0
 		eval_cp_current = 0.0
-		# clear any running engine worker state so background results aren't applied to new game
+		# cancel any running engine worker so its results won't be applied
+		try:
+			if engine_thread is not None and getattr(engine_thread, 'is_alive', lambda: False)():
+				engine_cancel_event.set()
+				try:
+					engine_thread.join(timeout=0.2)
+				except Exception:
+					pass
+		except Exception:
+			pass
 		engine_thread = None
+		engine_cancel_event = threading.Event()
+		# clear pending engine queue
 		try:
 			while not engine_queue.empty():
 				engine_queue.get_nowait()
 		except Exception:
 			pass
+
+	def apply_move_timing(is_engine_move: bool, now_ticks: int) -> None:
+		"""Update timing variables after a move by engine or human.
+
+		is_engine_move: True if engine moved, False for human.
+		now_ticks: current pygame ticks when move completed.
+		"""
+		nonlocal white_time_ms, black_time_ms, white_remaining_ms, black_remaining_ms, turn_start_ticks
+		elapsed = now_ticks - turn_start_ticks
+		if is_engine_move:
+			# update engine-side timers (engine may be White or Black)
+			if values.SHOW_ENGINE_CLOCK:
+				if clock_enabled:
+					if controller.engine_is_black:
+						black_remaining_ms -= elapsed
+						if increment_ms:
+							black_remaining_ms += increment_ms
+					else:
+						white_remaining_ms -= elapsed
+						if increment_ms:
+							white_remaining_ms += increment_ms
+				else:
+					if controller.engine_is_black:
+						black_time_ms += elapsed
+					else:
+						white_time_ms += elapsed
+		else:
+			# human move timing (player clocks)
+			if values.SHOW_PLAYER_CLOCK:
+				if clock_enabled:
+					if human_color_bool == chess.WHITE:
+						white_remaining_ms -= elapsed
+						if increment_ms:
+							white_remaining_ms += increment_ms
+					else:
+						black_remaining_ms -= elapsed
+						if increment_ms:
+							black_remaining_ms += increment_ms
+				else:
+					if human_color_bool == chess.WHITE:
+						white_time_ms += elapsed
+					else:
+						black_time_ms += elapsed
+		turn_start_ticks = now_ticks
 
 	def add_move(color_label: str, move: chess.Move, board_ref: chess.Board) -> None:
 		uci = move.uci() if move else ""
@@ -297,23 +356,7 @@ def main(start_time=None, increment=None, human_color=None, fen=None):
 							ok, move = controller.try_player_move(selected_square[0], selected_square[1], r, c)
 							if ok:
 								now = pygame.time.get_ticks()
-								elapsed = now - turn_start_ticks
-								if values.SHOW_PLAYER_CLOCK:
-									if clock_enabled:
-										if human_color_bool == chess.WHITE:
-											white_remaining_ms -= elapsed
-											if increment_ms:
-												white_remaining_ms += increment_ms
-										else:
-											black_remaining_ms -= elapsed
-											if increment_ms:
-												black_remaining_ms += increment_ms
-									else:
-										if human_color_bool == chess.WHITE:
-											white_time_ms += elapsed
-										else:
-											black_time_ms += elapsed
-								turn_start_ticks = now
+								apply_move_timing(False, now)
 								controller.print_terminal()
 								controller.sync_to_ui(board)
 								add_move("White" if human_color_bool == chess.WHITE else "Black", move, controller.board)
@@ -392,23 +435,7 @@ def main(start_time=None, increment=None, human_color=None, fen=None):
 						ok, move = controller.try_player_move(drag_from[0], drag_from[1], r2, c2)
 						if ok:
 							now = pygame.time.get_ticks()
-							elapsed = now - turn_start_ticks
-							if values.SHOW_PLAYER_CLOCK:
-								if clock_enabled:
-									if human_color_bool == chess.WHITE:
-										white_remaining_ms -= elapsed
-										if increment_ms:
-											white_remaining_ms += increment_ms
-									else:
-										black_remaining_ms -= elapsed
-										if increment_ms:
-											black_remaining_ms += increment_ms
-								else:
-									if human_color_bool == chess.WHITE:
-										white_time_ms += elapsed
-									else:
-										black_time_ms += elapsed
-							turn_start_ticks = now
+							apply_move_timing(False, now)
 							controller.print_terminal()
 							controller.sync_to_ui(board)
 							add_move("White", move, controller.board)
@@ -487,22 +514,7 @@ def main(start_time=None, increment=None, human_color=None, fen=None):
 			ok, move = controller.try_player_move(fr, fc, tr, tc)
 			if ok:
 				now = pygame.time.get_ticks()
-				elapsed = now - turn_start_ticks
-				if clock_enabled:
-					if human_color_bool == chess.WHITE:
-						white_remaining_ms -= elapsed
-						if increment_ms:
-							white_remaining_ms += increment_ms
-					else:
-						black_remaining_ms -= elapsed
-						if increment_ms:
-							black_remaining_ms += increment_ms
-				else:
-					if human_color_bool == chess.WHITE:
-						white_time_ms += elapsed
-					else:
-						black_time_ms += elapsed
-				turn_start_ticks = now
+				apply_move_timing(False, now)
 				controller.print_terminal()
 				controller.sync_to_ui(board)
 				add_move("White" if human_color_bool == chess.WHITE else "Black", move, controller.board)
@@ -843,7 +855,7 @@ def main(start_time=None, increment=None, human_color=None, fen=None):
 			result_font = chessboard._get_font(22)
 			if controller.board.is_checkmate():
 				winner = "White" if controller.board.turn == chess.BLACK else "Black"
-				result_line = f"🏆 Winner: {winner}"
+				result_line = f"Winner: {winner}"
 				result_color = (255, 215, 0)
 			elif game_over_reason and "Resign" in game_over_reason:
 				result_line = "White Resigned — Black Wins"
@@ -910,20 +922,24 @@ def main(start_time=None, increment=None, human_color=None, fen=None):
 		if engine_pending and not is_game_over_ui() and controller.board.turn == (not controller.engine_is_black):
 			# Start worker thread if not already running
 			if engine_thread is None:
-				def _engine_worker():
-					try:
-						import algorithms.search as engine_search
-						# search on a copy so we don't mutate the UI/main thread board
-						board_copy = controller.board.copy()
-						move, info = engine_search.search_with_info(board_copy, controller.max_depth, engine_is_black=controller.engine_is_black)
-						engine_queue.put((move, info))
-					except Exception as e:
-						import traceback
-						traceback.print_exc()
-						print(f'[ENGINE ERROR] {e}')
-						engine_queue.put((None, None))
-				engine_thread = threading.Thread(target=_engine_worker, daemon=True)
-				engine_thread.start()
+					def _engine_worker(cancel_event):
+						try:
+							import algorithms.search as engine_search
+							# search on a copy so we don't mutate the UI/main thread board
+							board_copy = controller.board.copy()
+							move, info = engine_search.search_with_info(board_copy, controller.max_depth, engine_is_black=controller.engine_is_black)
+							# If cancelled while searching, drop the result
+							if cancel_event.is_set():
+								return
+							engine_queue.put((move, info))
+						except Exception as e:
+							logger.exception("[ENGINE ERROR]")
+							try:
+								engine_queue.put((None, None))
+							except Exception:
+								pass
+					engine_thread = threading.Thread(target=_engine_worker, args=(engine_cancel_event,), daemon=True)
+					engine_thread.start()
 			else:
 				# worker finished? retrieve and apply result
 				if not engine_thread.is_alive():
@@ -932,25 +948,14 @@ def main(start_time=None, increment=None, human_color=None, fen=None):
 						eng_move = engine_queue.get_nowait()
 					except queue.Empty:
 						eng_move = None
+
 					# update timing for engine side (only if engine clock toggled on)
 					now = pygame.time.get_ticks()
-					elapsed = now - turn_start_ticks
-					if values.SHOW_ENGINE_CLOCK:
-						if clock_enabled:
-							if controller.engine_is_black:
-								black_remaining_ms -= elapsed
-								if increment_ms:
-									black_remaining_ms += increment_ms
-							else:
-								white_remaining_ms -= elapsed
-								if increment_ms:
-									white_remaining_ms += increment_ms
-						else:
-							if controller.engine_is_black:
-								black_time_ms += elapsed
-							else:
-								white_time_ms += elapsed
-					turn_start_ticks = now
+					apply_move_timing(True, now)
+					# if cancelled while pending, ignore result
+					if engine_cancel_event.is_set():
+						eng_move = None
+
 					if eng_move:
 						# push move on main thread (so UI sync is safe)
 						# keep the original engine result so we can extract eval info
@@ -985,7 +990,7 @@ def main(start_time=None, increment=None, human_color=None, fen=None):
 							controller.board.push(move_obj)
 							controller.last_move = move_obj
 							controller.last_move_san = san
-							print(f"[ENGINE] plays: {move_obj}")
+							logger.info(f"[ENGINE] plays: {move_obj}")
 							controller.print_terminal()
 							controller.sync_to_ui(board)
 							label = "Black (Engine)" if controller.engine_is_black else "White (Engine)"
