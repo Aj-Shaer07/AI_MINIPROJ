@@ -29,7 +29,7 @@ EVAL_BAR_MAX_CP = 5000.0  # clamp mapping range (+/- centipawns)
 # Extreme-evaluation handling: when absolute centipawn is in the
 # EXTREME range map the bar to a near-full fill (but not completely
 # to the edge). If a mate is detected, fill fully.
-EVAL_BAR_EXTREME_MIN_CP = 3000.0  # lower bound (inclusive) for extreme mapping
+EVAL_BAR_EXTREME_MIN_CP = 2600.0  # lower bound (inclusive) for extreme mapping
 EVAL_BAR_EXTREME_MAX_CP = 7000.0  # upper bound for extreme mapping
 EVAL_BAR_EXTREME_FILL = 0.98     # fraction of full bar to fill for extreme CPs
 EVAL_BAR_MATE_FILL = 1.0         # fraction for mate (full fill)
@@ -46,6 +46,13 @@ PANEL_MARGIN = 20
 
 WINDOW_WIDTH = PANEL_MARGIN + EVAL_BAR_WIDTH + EVAL_BAR_GAP + _BOARD_W + PANEL_MARGIN + PANEL_WIDTH + PANEL_MARGIN + EVAL_BOX_MARGIN + EVAL_BOX_WIDTH
 WINDOW_HEIGHT = PANEL_MARGIN + _CAPTURED_ROW_H + _BOARD_H + _CAPTURED_ROW_H + PANEL_MARGIN
+
+# Eval label (mate) styling — used to render the M{N} badge beside the bar
+EVAL_LABEL_PAD_X = 6
+EVAL_LABEL_PAD_Y = 4
+EVAL_LABEL_BG = (28, 28, 32)
+EVAL_LABEL_BORDER = (70, 70, 76)
+EVAL_LABEL_TEXT = (255, 245, 200)
 
 # Colors — unified dark charcoal theme
 BG_COLOR = (18, 18, 22)

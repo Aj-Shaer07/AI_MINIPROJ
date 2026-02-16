@@ -130,7 +130,7 @@ def get_piece_surface(piece_name: Optional[str], color: Optional[str], size_px: 
             pygame.font.init()
             font = pygame.font.Font(font_path, size_px)
             # Render in black by default; UI can blit/transform as needed.
-            surf = font.render(symbol, True, (0, 0, 0))
+            surf = font.render(symbol, True, (255,255,255))
             return surf
         except Exception:
             return None

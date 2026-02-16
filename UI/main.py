@@ -621,8 +621,28 @@ def main(start_time=None, increment=None, human_color=None, fen=None):
 		except Exception:
 			disp_val = 0
 		val_font = chessboard._get_font(14)
-		val_s = val_font.render(f"{disp_val} cp", True, values.EVAL_BAR_TEXT_COLOR)
-		screen.blit(val_s, (bar_x - val_s.get_width() - 6, bar_y + 4))
+		# Only display mate information (e.g. M3). Do not show centipawn values.
+		val_font = chessboard._get_font(14)
+		if mate_flag is not None:
+			try:
+				m = int(mate_flag)
+				text = f"M{abs(m)}"
+			except Exception:
+				text = "M"
+			# Render with a small dark rounded background and outlined text for contrast
+			try:
+				txt_surf = chessboard._render_outlined_text(val_font, text, (255, 245, 200), (16, 16, 16), outline_px=1)
+			except Exception:
+				# fallback to simple render
+				txt_surf = val_font.render(text, True, values.EVAL_BAR_TEXT_COLOR)
+			pad_x, pad_y = values.EVAL_LABEL_PAD_X, values.EVAL_LABEL_PAD_Y
+			bg_x = bar_x - txt_surf.get_width() - 6 - pad_x
+			bg_y = bar_y + 4 - pad_y
+			bg_rect = pygame.Rect(bg_x, bg_y, txt_surf.get_width() + pad_x * 2, txt_surf.get_height() + pad_y * 2)
+			# slightly translucent dark background to ensure legibility
+			pygame.draw.rect(screen, values.EVAL_LABEL_BG, bg_rect, border_radius=6)
+			pygame.draw.rect(screen, values.EVAL_LABEL_BORDER, bg_rect, 1, border_radius=6)
+			screen.blit(txt_surf, (bg_rect.x + pad_x, bg_rect.y + pad_y))
 
 		# draw a small triangle marker like chess.com at the edge of the fill
 		# center x for marker
