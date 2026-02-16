@@ -19,8 +19,8 @@ import algorithms.main as alg_main
 
 
 class GameController:
-    def __init__(self, max_depth: int = 4, engine_is_black: bool = True):
-        self.board = chess.Board()
+    def __init__(self, max_depth: int = 4, engine_is_black: bool = True, fen: str = None):
+        self.board = chess.Board(fen) if fen else chess.Board()
         self.max_depth = max_depth
         self.engine_is_black = engine_is_black
 

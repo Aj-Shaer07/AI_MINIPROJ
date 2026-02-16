@@ -90,13 +90,29 @@ CLOCK_INACTIVE_TEXT = PANEL_TEXT_COLOR
 # Engine clock: when False the engine's clock is hidden/disabled
 ENGINE_HAS_CLOCK = False
 
+# Clock visibility toggles (changed at runtime via UI buttons)
+SHOW_PLAYER_CLOCK = True
+SHOW_ENGINE_CLOCK = False
+
+# Clock toggle button styling
+CLOCK_TOGGLE_W = 22
+CLOCK_TOGGLE_H = 22
+CLOCK_TOGGLE_ON_BG = (70, 140, 90)
+CLOCK_TOGGLE_OFF_BG = (55, 55, 60)
+CLOCK_TOGGLE_BORDER = (80, 80, 88)
+CLOCK_TOGGLE_TEXT_COLOR = (220, 220, 220)
+
+# Runtime-assigned toggle button rects (set by main.py rendering loop)
+_top_clock_toggle_rect = None
+_bot_clock_toggle_rect = None
+
 # General UI spacing
 PANEL_PADDING = 14
 ELEMENT_GAP = 5
 
 # Landing page UI defaults
 LANDING_WINDOW_WIDTH = 640
-LANDING_WINDOW_HEIGHT = 420
+LANDING_WINDOW_HEIGHT = 520
 LANDING_BG_COLOR = BG_COLOR
 LANDING_TITLE_COLOR = (245, 245, 245)
 LANDING_SUBTITLE_COLOR = (180, 180, 180)
@@ -109,6 +125,14 @@ LANDING_BODY_FONT_SIZE = 20
 LANDING_BUTTON_WIDTH = 260
 LANDING_BUTTON_HEIGHT = 64
 LANDING_BUTTON_RADIUS = 12
+
+# Landing page checkbox (clock toggles) dimensions
+LANDING_CHECKBOX_SIZE = 26
+LANDING_CHECKBOX_RADIUS = 4
+LANDING_CHECKBOX_LABEL_GAP = 10
+LANDING_CHECKBOX_Y1 = 280    # first checkbox Y position
+LANDING_CHECKBOX_Y2 = 316    # second checkbox Y position
+LANDING_CLOCKS_LABEL_Y = 258 # "Clocks:" label Y position
 
 # Font / rendering
 if sys.platform == 'darwin':

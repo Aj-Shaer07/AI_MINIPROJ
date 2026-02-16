@@ -456,6 +456,11 @@ def evaluate(board, ply=0):
             corner_bonus = _kbb_corner_bonus(board, losing_king, winning_color)
             score += sign * corner_bonus
 
+        # K+B+N vs K: drive king to the corner matching bishop's square color
+        if _is_kbn_vs_k(board, winning_color):
+            corner_bonus = _kbn_corner_bonus(board, losing_king, winning_color)
+            score += sign * corner_bonus
+
     # Stalemate avoidance: when we have a big advantage, penalize positions
     # where the losing side has very few legal moves (risk of stalemate)
     if abs(mat_advantage) >= 200:
@@ -554,4 +559,62 @@ def _kbb_corner_bonus(board, losing_king_sq, winning_color):
 
     # Bonus for being close to a corner (max 7, min 0)
     return (7 - min_corner_dist) * 20
+
+
+def _is_kbn_vs_k(board, winning_color):
+    """Check if it's K+B+N vs K (exactly one bishop + one knight, no other pieces)."""
+    losing_color = not winning_color
+    # Losing side: only king
+    for pt in (chess.PAWN, chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN):
+        if board.pieces(pt, losing_color):
+            return False
+    # Winning side: exactly one bishop + one knight, nothing else
+    if len(board.pieces(chess.BISHOP, winning_color)) != 1:
+        return False
+    if len(board.pieces(chess.KNIGHT, winning_color)) != 1:
+        return False
+    for pt in (chess.PAWN, chess.ROOK, chess.QUEEN):
+        if board.pieces(pt, winning_color):
+            return False
+    return True
+
+
+def _kbn_corner_bonus(board, losing_king_sq, winning_color):
+    """In K+B+N vs K, drive the losing king to the corner whose color
+    matches the bishop's square color.
+    Dark-square bishop → target a1 (dark) or h8 (dark).
+    Light-square bishop → target a8 (light) or h1 (light)."""
+    bishops = list(board.pieces(chess.BISHOP, winning_color))
+    if len(bishops) != 1:
+        return 0
+
+    # Bishop square color: 0 = dark, 1 = light
+    bsq = bishops[0]
+    bishop_color = (chess.square_file(bsq) + chess.square_rank(bsq)) % 2
+
+    # Target corners matching bishop's square color
+    # a1=(0,0) dark, h8=(7,7) dark, a8=(0,7) light, h1=(7,0) light
+    if bishop_color == 0:  # dark-square bishop
+        target_corners = [(0, 0), (7, 7)]  # a1, h8
+    else:  # light-square bishop
+        target_corners = [(0, 7), (7, 0)]  # a8, h1
+
+    losing_file = chess.square_file(losing_king_sq)
+    losing_rank = chess.square_rank(losing_king_sq)
+
+    # Distance to nearest correct corner (Chebyshev)
+    min_corner_dist = min(
+        max(abs(losing_file - cf), abs(losing_rank - cr))
+        for cf, cr in target_corners
+    )
+
+    # Strong bonus — KBN needs heavy guidance (40cp per unit closer)
+    corner_bonus = (7 - min_corner_dist) * 40
+
+    # Also reward the winning king being close to the losing king
+    winning_king = board.king(winning_color)
+    king_dist = _chebyshev_distance(winning_king, losing_king_sq)
+    proximity_bonus = (7 - king_dist) * 10
+
+    return corner_bonus + proximity_bonus
 

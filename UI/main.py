@@ -118,7 +118,7 @@ def draw_captured_bar(surface, captured_list, x, y, w, h, font, color, label, bg
 
 # ── main ────────────────────────────────────────────────────────────────
 
-def main(start_time=None, increment=None, human_color=None):
+def main(start_time=None, increment=None, human_color=None, fen=None):
 	args = parse_args()
 	# If called from the landing page, override CLI args with provided choices
 	if start_time is not None:
@@ -139,7 +139,7 @@ def main(start_time=None, increment=None, human_color=None):
 	engine_is_black = True
 	if human_color is not None:
 		engine_is_black = True if str(human_color).lower() == 'white' else False
-	controller = GameController(max_depth=getattr(args, 'engine_depth', 4), engine_is_black=engine_is_black)
+	controller = GameController(max_depth=getattr(args, 'engine_depth', 4), engine_is_black=engine_is_black, fen=fen)
 	controller.sync_to_ui(board)
 
 	# human color determination (human is opposite of engine)
@@ -231,7 +231,7 @@ def main(start_time=None, increment=None, human_color=None):
 		return "Game Over"
 
 	def is_game_over_ui() -> bool:
-		return controller.board.is_game_over() or game_over_reason is not None
+		return controller.board.is_game_over(claim_draw=False) or game_over_reason is not None
 
 	def fmt_time(total_ms: int) -> str:
 		total_sec = max(0, total_ms // 1000)
@@ -298,13 +298,21 @@ def main(start_time=None, increment=None, human_color=None):
 							if ok:
 								now = pygame.time.get_ticks()
 								elapsed = now - turn_start_ticks
-								if clock_enabled:
-									if human_color_bool == chess.WHITE:
-										white_remaining_ms -= elapsed
-										if increment_ms:
-											white_remaining_ms += increment_ms
+								if values.SHOW_PLAYER_CLOCK:
+									if clock_enabled:
+										if human_color_bool == chess.WHITE:
+											white_remaining_ms -= elapsed
+											if increment_ms:
+												white_remaining_ms += increment_ms
+										else:
+											black_remaining_ms -= elapsed
+											if increment_ms:
+												black_remaining_ms += increment_ms
 									else:
-										white_time_ms += elapsed
+										if human_color_bool == chess.WHITE:
+											white_time_ms += elapsed
+										else:
+											black_time_ms += elapsed
 								turn_start_ticks = now
 								controller.print_terminal()
 								controller.sync_to_ui(board)
@@ -385,12 +393,21 @@ def main(start_time=None, increment=None, human_color=None):
 						if ok:
 							now = pygame.time.get_ticks()
 							elapsed = now - turn_start_ticks
-							if clock_enabled:
-								white_remaining_ms -= elapsed
-								if increment_ms:
-									white_remaining_ms += increment_ms
-							else:
-								white_time_ms += elapsed
+							if values.SHOW_PLAYER_CLOCK:
+								if clock_enabled:
+									if human_color_bool == chess.WHITE:
+										white_remaining_ms -= elapsed
+										if increment_ms:
+											white_remaining_ms += increment_ms
+									else:
+										black_remaining_ms -= elapsed
+										if increment_ms:
+											black_remaining_ms += increment_ms
+								else:
+									if human_color_bool == chess.WHITE:
+										white_time_ms += elapsed
+									else:
+										black_time_ms += elapsed
 							turn_start_ticks = now
 							controller.print_terminal()
 							controller.sync_to_ui(board)
@@ -605,36 +622,46 @@ def main(start_time=None, increment=None, human_color=None):
 
 		# timer
 		now_ticks = pygame.time.get_ticks()
+		# Determine which side's clock is active based on toggle
+		white_is_player = controller.engine_is_black
+		white_clock_on = values.SHOW_PLAYER_CLOCK if white_is_player else values.SHOW_ENGINE_CLOCK
+		black_clock_on = values.SHOW_ENGINE_CLOCK if controller.engine_is_black else values.SHOW_PLAYER_CLOCK
+
+		elapsed_ticks = now_ticks - turn_start_ticks
 		if clock_enabled:
 			if not is_game_over_ui():
-				if controller.board.turn == chess.WHITE:
-					white_display = white_remaining_ms - (now_ticks - turn_start_ticks)
-					black_display = black_remaining_ms
+				if controller.board.turn == chess.WHITE and white_clock_on:
+					white_display = white_remaining_ms - elapsed_ticks
 				else:
 					white_display = white_remaining_ms
-					black_display = black_remaining_ms - (now_ticks - turn_start_ticks)
+				if controller.board.turn == chess.BLACK and black_clock_on:
+					black_display = black_remaining_ms - elapsed_ticks
+				else:
+					black_display = black_remaining_ms
 			else:
 				white_display = white_remaining_ms
 				black_display = black_remaining_ms
 		else:
 			if not is_game_over_ui():
-				if controller.board.turn == chess.WHITE:
-					white_display = white_time_ms + (now_ticks - turn_start_ticks)
-					black_display = black_time_ms
+				if controller.board.turn == chess.WHITE and white_clock_on:
+					white_display = white_time_ms + elapsed_ticks
 				else:
 					white_display = white_time_ms
-					black_display = black_time_ms + (now_ticks - turn_start_ticks)
+				if controller.board.turn == chess.BLACK and black_clock_on:
+					black_display = black_time_ms + elapsed_ticks
+				else:
+					black_display = black_time_ms
 			else:
 				white_display = white_time_ms
 				black_display = black_time_ms
 
-		# timeout detection (when countdown reaches zero on the side to move)
+		# timeout detection (only when that side's clock is toggled on)
 		if clock_enabled and not is_game_over_ui():
-			if controller.board.turn == chess.WHITE and white_display <= 0:
+			if controller.board.turn == chess.WHITE and white_clock_on and white_display <= 0:
 				game_over_reason = "Timeout — White"
 				controller.print_terminal()
 				print("Result: Timeout — Black wins")
-			elif controller.board.turn == chess.BLACK and black_display <= 0:
+			elif controller.board.turn == chess.BLACK and black_clock_on and black_display <= 0:
 				game_over_reason = "Timeout — Black"
 				controller.print_terminal()
 				print("Result: Timeout — White wins")
@@ -649,9 +676,15 @@ def main(start_time=None, increment=None, human_color=None):
 		bottom_clock_y = board_area_y + board.height + (values._CAPTURED_ROW_H - clock_h) // 2 + values.ELEMENT_GAP
 
 		clock_font = chessboard._get_font(26)
-		# top clock (Black)
-		# Only show the black (top) clock if Black is the human player
-		if not controller.engine_is_black:
+
+		# Determine which side is player/engine for top (Black) and bottom (White)
+		top_is_engine = controller.engine_is_black       # engine is Black → top is engine
+		bot_is_engine = not controller.engine_is_black    # engine is White → bottom is engine
+		show_top_clock = values.SHOW_ENGINE_CLOCK if top_is_engine else values.SHOW_PLAYER_CLOCK
+		show_bot_clock = values.SHOW_ENGINE_CLOCK if bot_is_engine else values.SHOW_PLAYER_CLOCK
+
+		# top clock (Black) — only rendered when visible flag is on
+		if show_top_clock:
 			black_active = (controller.board.turn == chess.BLACK) and not is_game_over_ui()
 			black_bg = values.CLOCK_ACTIVE_BG if black_active else values.CLOCK_INACTIVE_BG
 			black_text_color = values.CLOCK_ACTIVE_TEXT if black_active else values.CLOCK_INACTIVE_TEXT
@@ -660,9 +693,8 @@ def main(start_time=None, increment=None, human_color=None):
 			black_time_surf = clock_font.render(fmt_time(black_display), True, black_text_color)
 			screen.blit(black_time_surf, (top_rect.centerx - black_time_surf.get_width() // 2, top_rect.centery - black_time_surf.get_height() // 2))
 
-		# bottom clock (White)
-		# Only show the white (bottom) clock if White is the human player
-		if controller.engine_is_black:
+		# bottom clock (White) — only rendered when visible flag is on
+		if show_bot_clock:
 			white_active = (controller.board.turn == chess.WHITE) and not is_game_over_ui()
 			white_bg = values.CLOCK_ACTIVE_BG if white_active else values.CLOCK_INACTIVE_BG
 			white_text_color = values.CLOCK_ACTIVE_TEXT if white_active else values.CLOCK_INACTIVE_TEXT
@@ -879,11 +911,17 @@ def main(start_time=None, increment=None, human_color=None):
 			# Start worker thread if not already running
 			if engine_thread is None:
 				def _engine_worker():
-					import algorithms.search as engine_search
-					# search on a copy so we don't mutate the UI/main thread board
-					board_copy = controller.board.copy()
-					move, info = engine_search.search_with_info(board_copy, controller.max_depth, engine_is_black=controller.engine_is_black)
-					engine_queue.put((move, info))
+					try:
+						import algorithms.search as engine_search
+						# search on a copy so we don't mutate the UI/main thread board
+						board_copy = controller.board.copy()
+						move, info = engine_search.search_with_info(board_copy, controller.max_depth, engine_is_black=controller.engine_is_black)
+						engine_queue.put((move, info))
+					except Exception as e:
+						import traceback
+						traceback.print_exc()
+						print(f'[ENGINE ERROR] {e}')
+						engine_queue.put((None, None))
 				engine_thread = threading.Thread(target=_engine_worker, daemon=True)
 				engine_thread.start()
 			else:
@@ -894,24 +932,24 @@ def main(start_time=None, increment=None, human_color=None):
 						eng_move = engine_queue.get_nowait()
 					except queue.Empty:
 						eng_move = None
-					# update timing for engine side (skip if engine clock disabled via values)
+					# update timing for engine side (only if engine clock toggled on)
 					now = pygame.time.get_ticks()
 					elapsed = now - turn_start_ticks
-					if clock_enabled and values.ENGINE_HAS_CLOCK:
-						if controller.engine_is_black:
-							black_remaining_ms -= elapsed
-							if increment_ms:
-								black_remaining_ms += increment_ms
+					if values.SHOW_ENGINE_CLOCK:
+						if clock_enabled:
+							if controller.engine_is_black:
+								black_remaining_ms -= elapsed
+								if increment_ms:
+									black_remaining_ms += increment_ms
+							else:
+								white_remaining_ms -= elapsed
+								if increment_ms:
+									white_remaining_ms += increment_ms
 						else:
-							white_remaining_ms -= elapsed
-							if increment_ms:
-								white_remaining_ms += increment_ms
-					elif not clock_enabled and values.ENGINE_HAS_CLOCK:
-						if controller.engine_is_black:
-							black_time_ms += elapsed
-						else:
-							white_time_ms += elapsed
-					# if engine clock is disabled we intentionally do not modify engine timing
+							if controller.engine_is_black:
+								black_time_ms += elapsed
+							else:
+								white_time_ms += elapsed
 					turn_start_ticks = now
 					if eng_move:
 						# push move on main thread (so UI sync is safe)

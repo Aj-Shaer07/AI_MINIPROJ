@@ -29,6 +29,9 @@ def show_and_run(start_callable):
     selected_time = 300
     increment_options = [0, 1, 2, 5]
     selected_increment = 0
+    # Clock visibility toggles (default from values)
+    show_player_clock = values.SHOW_PLAYER_CLOCK
+    show_engine_clock = values.SHOW_ENGINE_CLOCK
 
     def draw_button(rect, text, active=False):
         # Active buttons should not show hover effect; hover only applies to non-active buttons
@@ -43,6 +46,23 @@ def show_and_run(start_callable):
         pygame.draw.rect(screen, color, rect, border_radius=values.LANDING_BUTTON_RADIUS)
         txt = body_font.render(text, True, values.LANDING_BUTTON_TEXT)
         screen.blit(txt, (rect.centerx - txt.get_width() // 2, rect.centery - txt.get_height() // 2))
+
+    def draw_checkbox(rect, label, checked):
+        """Draw a checkbox with a label to the right."""
+        # box
+        box_color = values.LANDING_BUTTON_BG if checked else values.LANDING_BUTTON_INACTIVE
+        try:
+            hover = rect.collidepoint(pygame.mouse.get_pos())
+        except Exception:
+            hover = False
+        if hover and not checked:
+            box_color = values.LANDING_BUTTON_HOVER
+        pygame.draw.rect(screen, box_color, rect, border_radius=values.LANDING_CHECKBOX_RADIUS)
+        if checked:
+            pygame.draw.circle(screen, values.LANDING_BUTTON_TEXT, rect.center, rect.width // 4)
+        # label
+        lbl = body_font.render(label, True, values.LANDING_SUBTITLE_COLOR)
+        screen.blit(lbl, (rect.right + values.LANDING_CHECKBOX_LABEL_GAP, rect.centery - lbl.get_height() // 2))
 
     # Precompute common rects so drawing and hit-testing match exactly
     start_rect = pygame.Rect((window_w - values.LANDING_BUTTON_WIDTH) // 2, 220, values.LANDING_BUTTON_WIDTH, values.LANDING_BUTTON_HEIGHT)
@@ -71,12 +91,22 @@ def show_and_run(start_callable):
                         ir = pygame.Rect(40 + i * 120, 210, 100, 32)
                         if ir.collidepoint((mx, my)):
                             selected_increment = increment_options[i]
+                    # clock toggle checkboxes (match drawing y=280, y=316)
+                    pclock_rect = pygame.Rect(40, values.LANDING_CHECKBOX_Y1, values.LANDING_CHECKBOX_SIZE, values.LANDING_CHECKBOX_SIZE)
+                    eclock_rect = pygame.Rect(40, values.LANDING_CHECKBOX_Y2, values.LANDING_CHECKBOX_SIZE, values.LANDING_CHECKBOX_SIZE)
+                    if pclock_rect.collidepoint((mx, my)):
+                        show_player_clock = not show_player_clock
+                    if eclock_rect.collidepoint((mx, my)):
+                        show_engine_clock = not show_engine_clock
                     # play and back
                     play_rect = pygame.Rect(window_w - 160, window_h - 84, 120, 48)
                     back_rect = pygame.Rect(40, window_h - 84, 120, 48)
                     if back_rect.collidepoint((mx, my)):
                         state = 'landing'
                     if play_rect.collidepoint((mx, my)):
+                        # apply clock visibility settings
+                        values.SHOW_PLAYER_CLOCK = show_player_clock
+                        values.SHOW_ENGINE_CLOCK = show_engine_clock
                         # launch game with selected options
                         try:
                             pygame.display.quit()
@@ -118,6 +148,14 @@ def show_and_run(start_callable):
                 ir = pygame.Rect(40 + i * 120, 210, 100, 32)
                 draw_button(ir, str(inc), active=(selected_increment == inc))
 
+            # Clock visibility toggles
+            clk_label = body_font.render("Clocks:", True, values.LANDING_SUBTITLE_COLOR)
+            screen.blit(clk_label, (40, values.LANDING_CLOCKS_LABEL_Y))
+            pclock_rect = pygame.Rect(40, values.LANDING_CHECKBOX_Y1, values.LANDING_CHECKBOX_SIZE, values.LANDING_CHECKBOX_SIZE)
+            eclock_rect = pygame.Rect(40, values.LANDING_CHECKBOX_Y2, values.LANDING_CHECKBOX_SIZE, values.LANDING_CHECKBOX_SIZE)
+            draw_checkbox(pclock_rect, "Player Clock", show_player_clock)
+            draw_checkbox(eclock_rect, "Engine Clock", show_engine_clock)
+
             # Controls
             back_rect = pygame.Rect(40, window_h - 84, 120, 48)
             play_rect = pygame.Rect(window_w - 160, window_h - 84, 120, 48)
@@ -127,7 +165,9 @@ def show_and_run(start_callable):
             screen.blit(play_txt, (play_rect.centerx - play_txt.get_width() // 2, play_rect.centery - play_txt.get_height() // 2))
 
             # summary
-            summary = body_font.render(f"Time: {selected_time//60}m    Inc: {selected_increment}s", True, values.LANDING_SUBTITLE_COLOR)
+            pc_str = "ON" if show_player_clock else "OFF"
+            ec_str = "ON" if show_engine_clock else "OFF"
+            summary = body_font.render(f"Time: {selected_time//60}m    Inc: {selected_increment}s    P-Clock: {pc_str}    E-Clock: {ec_str}", True, values.LANDING_SUBTITLE_COLOR)
             screen.blit(summary, (40, window_h - 128))
 
         pygame.display.flip()
