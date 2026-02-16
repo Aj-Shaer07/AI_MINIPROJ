@@ -31,7 +31,7 @@ EVAL_BAR_MAX_CP = 5000.0  # clamp mapping range (+/- centipawns)
 # to the edge). If a mate is detected, fill fully.
 EVAL_BAR_EXTREME_MIN_CP = 2600.0  # lower bound (inclusive) for extreme mapping
 EVAL_BAR_EXTREME_MAX_CP = 7000.0  # upper bound for extreme mapping
-EVAL_BAR_EXTREME_FILL = 0.98     # fraction of full bar to fill for extreme CPs
+EVAL_BAR_EXTREME_FILL = 0.80     # fraction of full bar to fill for extreme CPs
 EVAL_BAR_MATE_FILL = 1.0         # fraction for mate (full fill)
 EVAL_BAR_BG = (28, 28, 32)
 EVAL_BAR_WHITE_COLOR = (84, 196, 129)  # green for White advantage
