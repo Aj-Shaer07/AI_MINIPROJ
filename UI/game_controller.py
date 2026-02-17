@@ -1,0 +1,210 @@
+import sys
+import os
+import chess
+from typing import Tuple, Optional
+
+# Ensure repository root is importable when this module is loaded from UI/
+ROOT = os.path.dirname(os.path.dirname(__file__))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+# Ensure algorithms/ directory is on path so relative imports within algorithms/ work
+ALGORITHMS_DIR = os.path.join(ROOT, 'algorithms')
+if ALGORITHMS_DIR not in sys.path:
+    sys.path.insert(0, ALGORITHMS_DIR)
+
+import algorithms.search as engine_search
+import values
+import algorithms.main as alg_main
+
+
+class GameController:
+    def __init__(self, max_depth: int = 4, engine_is_black: bool = True, fen: str = None):
+        self.board = chess.Board(fen) if fen else chess.Board()
+        self.max_depth = max_depth
+        self.engine_is_black = engine_is_black
+
+    def coords_to_square_name(self, r: int, c: int, rows: int = 8) -> str:
+        file = chr(ord('a') + int(c))
+        rank = str(rows - int(r))
+        return f"{file}{rank}"
+
+    def is_promotion_move(self, from_r: int, from_c: int, to_r: int, to_c: int) -> bool:
+        """Return True if moving from (from_r,from_c) to (to_r,to_c) is a pawn promotion."""
+        from_sq = self.coords_to_square_name(from_r, from_c)
+        to_sq = self.coords_to_square_name(to_r, to_c)
+        uci = from_sq + to_sq
+        # Check if any promotion variant of this move is legal
+        for promo in ['q', 'r', 'b', 'n']:
+            try:
+                move = chess.Move.from_uci(uci + promo)
+            except Exception:
+                continue
+            if move in self.board.legal_moves:
+                return True
+        return False
+
+    def try_player_move_with_promotion(self, from_r: int, from_c: int, to_r: int, to_c: int, promo: str) -> Tuple[bool, Optional[chess.Move]]:
+        """Execute a move with an explicit promotion piece character ('q','r','b','n')."""
+        from_sq = self.coords_to_square_name(from_r, from_c)
+        to_sq = self.coords_to_square_name(to_r, to_c)
+        uci = from_sq + to_sq + promo
+        try:
+            move = chess.Move.from_uci(uci)
+        except Exception:
+            return False, None
+        if move in self.board.legal_moves:
+            try:
+                san = self.board.san(move)
+            except Exception:
+                san = None
+            self.board.push(move)
+            self.last_move = move
+            self.last_move_san = san
+            return True, move
+        return False, None
+
+    def try_player_move(self, from_r: int, from_c: int, to_r: int, to_c: int) -> Tuple[bool, Optional[chess.Move]]:
+        from_sq = self.coords_to_square_name(from_r, from_c)
+        to_sq = self.coords_to_square_name(to_r, to_c)
+        uci = from_sq + to_sq
+
+        # try simple UCI first
+        move = None
+        try:
+            move = chess.Move.from_uci(uci)
+        except Exception:
+            move = None
+
+        if move and move in self.board.legal_moves:
+            try:
+                san = self.board.san(move)
+            except Exception:
+                san = None
+            self.board.push(move)
+            self.last_move = move
+            self.last_move_san = san
+            return True, move
+
+        # handle pawn promotion (try common promotions)
+        for promo in ['q', 'r', 'b', 'n']:
+            try:
+                move2 = chess.Move.from_uci(uci + promo)
+            except Exception:
+                continue
+            if move2 in self.board.legal_moves:
+                try:
+                    san2 = self.board.san(move2)
+                except Exception:
+                    san2 = None
+                self.board.push(move2)
+                self.last_move = move2
+                self.last_move_san = san2
+                return True, move2
+
+        return False, None
+
+    def get_moves_for_square(self, r: int, c: int, for_color: Optional[bool] = None) -> list:
+        """Return list of (row,col) moves for square (r,c).
+
+        If `for_color` is provided (chess.WHITE or chess.BLACK) generate legal
+        moves as if that side is to move (useful for premoves when off-turn).
+        """
+        sq_name = self.coords_to_square_name(r, c)
+        sq = chess.parse_square(sq_name)
+        if for_color is None:
+            moves = [move for move in self.board.legal_moves if move.from_square == sq]
+        else:
+            board_copy = self.board.copy()
+            board_copy.turn = for_color
+            moves = [move for move in board_copy.legal_moves if move.from_square == sq]
+        coords = []
+        for move in moves:
+            to_sq = move.to_square
+            file_idx = chess.square_file(to_sq)
+            rank_idx = chess.square_rank(to_sq)
+            row = 8 - 1 - rank_idx
+            col = file_idx
+            coords.append((row, col))
+        return coords
+
+    def engine_move(self):
+        if self.board.is_game_over():
+            return None
+        move, info = engine_search.search_with_info(self.board, self.max_depth, engine_is_black=self.engine_is_black)
+        if move is None:
+            return None
+        try:
+            san = self.board.san(move)
+        except Exception:
+            san = None
+        self.board.push(move)
+        self.last_move = move
+        self.last_move_san = san
+        return move
+
+    def sync_to_ui(self, ui_board) -> None:
+        """Populate `ui_board` (an instance of UI.chessboard.ChessBoard) from the current chess.Board."""
+        # Faster incremental sync to reduce UI lag:
+        #  - iterate current board piece_map once and update UI slots directly
+        #  - mark visited positions then clear any UI squares not visited
+        rows = ui_board.rows
+        cols = ui_board.cols
+        board_map = self.board.piece_map()
+        ui_grid = ui_board.board
+        set_piece = ui_board.set_piece
+        sym_map = values.PIECE_SYMBOL_MAP
+        visited = set()
+
+        # update or set pieces present on the chess.Board
+        for sq, piece in board_map.items():
+            file_idx = chess.square_file(sq)
+            rank_idx = chess.square_rank(sq)
+            col = file_idx
+            row = rows - 1 - rank_idx
+            visited.add((row, col))
+            color_key = 'white' if piece.color == chess.WHITE else 'black'
+            symbol = sym_map[piece.piece_type][0 if piece.color == chess.BLACK else 1]
+            desired_piece = (symbol, color_key)
+            # only update when different to avoid unnecessary redraw work
+            if ui_grid[row][col] != desired_piece:
+                set_piece(row, col, desired_piece)
+
+        # clear any UI squares that are not part of current board state
+        for r in range(rows):
+            for c in range(cols):
+                if ui_grid[r][c] is not None and (r, c) not in visited:
+                    set_piece(r, c, None)
+
+        # set king in check
+        if self.board.is_check():
+            king_sq = self.board.king(self.board.turn)
+            file_idx = chess.square_file(king_sq)
+            rank_idx = chess.square_rank(king_sq)
+            row = rows - 1 - rank_idx
+            col = file_idx
+            ui_board.king_in_check = (row, col)
+        else:
+            ui_board.king_in_check = None
+
+        # set last move on UI board (as row/col coordinates) so UI can render it
+        if getattr(self, 'last_move', None):
+            from_sq = self.last_move.from_square
+            to_sq = self.last_move.to_square
+            f_file = chess.square_file(from_sq)
+            f_rank = chess.square_rank(from_sq)
+            t_file = chess.square_file(to_sq)
+            t_rank = chess.square_rank(to_sq)
+            fr = rows - 1 - f_rank
+            fc = f_file
+            tr = rows - 1 - t_rank
+            tc = t_file
+            ui_board.last_move = (fr, fc, tr, tc)
+        else:
+            ui_board.last_move = None
+
+        ui_board.possible_moves = []
+
+    def print_terminal(self):
+        # Delegate terminal printing to algorithms.main.print_terminal for consistent formatting
+        alg_main.print_terminal(self.board, getattr(self, 'last_move_san', None))
