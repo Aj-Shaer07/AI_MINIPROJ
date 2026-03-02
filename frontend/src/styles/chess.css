@@ -1,0 +1,73 @@
+.landing {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  height:70vh;
+}
+.landing-card {
+  background: #fff;
+  padding: 2rem;
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.08);
+  text-align:center;
+}
+.btn {
+  display:inline-block;
+  padding: 0.6rem 1rem;
+  background:#2b6cb0;
+  color:#fff;
+  border-radius:4px;
+  text-decoration:none;
+}
+
+.app-header {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding: 0.5rem 1rem;
+  background: #0f172a;
+  color: #fff;
+}
+.app-header .brand a { color: #fff; text-decoration:none; font-weight:700 }
+.app-nav a { margin-left: 1rem; color: #cbd5e1; text-decoration:none }
+
+.chessboard {
+  display:flex;
+  flex-direction:column;
+  border: 1px solid #333;
+  width: 520px;
+}
+.board-row { display:flex }
+.square { width: 65px; height:65px; display:flex; align-items:center; justify-content:center }
+.square.light { background: #f0d9b5 }
+.square.dark { background: #b58863 }
+.piece { font-size: 32px }
+.piece.white { color:#fff }
+.piece.black { color:#000 }
+
+.board-wrap { padding:1rem }
+
+/* Evaluation bar */
+.eval-bar { width: 24px; height: 420px; background: #222; display:flex; flex-direction:column; border-radius:6px; overflow:hidden; margin-right:12px }
+.eval-white { background: #54c37f; width:100%; transition:height 0.2s }
+.eval-black { background: #e74c3c; width:100%; transition:height 0.2s }
+
+/* Layout */
+.game-grid { display:flex; align-items:flex-start; gap:12px }
+.side-panel { width: 260px; background:#1a1a1d; color:#ddd; padding:12px; border-radius:8px }
+.eval-box { background:#111; padding:8px; border-radius:6px; margin-bottom:8px }
+.eval-value { font-weight:700 }
+
+/* Captured bar */
+.captured-bar { margin:8px 0 }
+.captured-label { font-size:12px; color:#aaa; margin-bottom:4px }
+.captured-items { display:flex; gap:6px; flex-wrap:wrap }
+.captured-piece { font-size:20px }
+
+.resign-btn { margin-top:12px; background:#b53a3a; color:#fff; border:none; padding:8px 12px; border-radius:6px }
+
+/* board extras */
+.square-wrap { position:relative }
+.square-wrap.last-move { box-shadow: inset 0 0 0 3px rgba(246,246,110,0.25) }
+.square-wrap.possible::after { content: ''; position:absolute; width:12px; height:12px; border-radius:50%; background: rgba(100,160,80,0.9); left:50%; top:50%; transform:translate(-50%,-50%) }
+
