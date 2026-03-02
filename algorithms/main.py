@@ -41,19 +41,28 @@ def print_terminal(board: chess.Board, last_move_san: Optional[str] = None) -> N
 def main():
     board = chess.Board()
     last_move_san = None
+    # Let the user choose their color. Engine will play the opposite.
+    choice = input("Choose your color — enter 'w' for White or 'b' for Black (default w): ").strip().lower()
+    if choice == 'b':
+        player_color = chess.BLACK
+    else:
+        player_color = chess.WHITE
 
     while not board.is_game_over():
         print_terminal(board, last_move_san)
 
-        if board.turn == chess.WHITE:
+        # If it's the player's turn, ask for input; otherwise engine moves.
+        if board.turn == player_color:
             move = input("Your move (SAN): ")
             board.push_san(move)
             last_move_san = move
         else:
+            # Engine plays the opposite color of the player
+            engine_is_black = (player_color == chess.WHITE)
             move, info = engine_search.search_with_info(
                 board,
                 MAX_DEPTH,
-                engine_is_black=True
+                engine_is_black=engine_is_black
             )
 
             if move:

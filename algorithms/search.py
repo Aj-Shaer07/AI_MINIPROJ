@@ -2,10 +2,10 @@ import chess
 import time
 from dataclasses import dataclass
 
-from evaluation import evaluate, MATE_SCORE
-from move_generation import generate_legal_moves
-from move_ordering import order_moves
-from transposition import lookup, probe_move, store
+from algorithms.evaluation import evaluate, MATE_SCORE
+from algorithms.move_generation import generate_legal_moves
+from algorithms.move_ordering import order_moves
+from algorithms.transposition import lookup, probe_move, store
 
 MAX_CHECK_EXTENSIONS = 3
 
