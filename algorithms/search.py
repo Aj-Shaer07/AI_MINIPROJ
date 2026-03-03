@@ -351,6 +351,36 @@ def search_with_info(board, max_depth, engine_is_black=True):
                 }
                 return forced, info
 
+    # Check Syzygy tablebase at root for positions with <= 4 pieces
+    try:
+        from algorithms import tablebase
+    except Exception:
+        tablebase = None
+
+    if tablebase is not None and tablebase.is_tablebase_loaded():
+        try:
+            tb_move = tablebase.tablebase_move_for_root(board)
+        except Exception:
+            tb_move = None
+        if tb_move is not None:
+            info = {
+                "move": tb_move,
+                "eval_cp": 0,
+                "depth": 0,
+                "time_ms": 0,
+
+                "nodes": 0,
+                "qnodes": 0,
+                "cutoffs": 0,
+
+                "tt_hits": 0,
+                "tt_probes": 0,
+
+                "max_ply": 0,
+                "max_qply": 0,
+            }
+            return tb_move, info
+
     move, value, depth, stats, elapsed = iterative_deepening(
         board, max_depth, engine_is_black=engine_is_black
     )
