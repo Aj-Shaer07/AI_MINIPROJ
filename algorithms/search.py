@@ -2,10 +2,10 @@ import chess
 import time
 from dataclasses import dataclass
 
-from evaluation import evaluate, MATE_SCORE
-from move_generation import generate_legal_moves
-from move_ordering import order_moves
-from transposition import lookup, probe_move, store
+from algorithms.evaluation import evaluate, MATE_SCORE
+from algorithms.move_generation import generate_legal_moves
+from algorithms.move_ordering import order_moves
+from algorithms.transposition import lookup, probe_move, store
 
 MAX_CHECK_EXTENSIONS = 3
 
@@ -350,6 +350,36 @@ def search_with_info(board, max_depth, engine_is_black=True):
                     "max_ply": 0, "max_qply": 0,
                 }
                 return forced, info
+
+    # Check Syzygy tablebase at root for positions with <= 4 pieces
+    try:
+        from algorithms import tablebase
+    except Exception:
+        tablebase = None
+
+    if tablebase is not None and tablebase.is_tablebase_loaded():
+        try:
+            tb_move = tablebase.tablebase_move_for_root(board)
+        except Exception:
+            tb_move = None
+        if tb_move is not None:
+            info = {
+                "move": tb_move,
+                "eval_cp": 0,
+                "depth": 0,
+                "time_ms": 0,
+
+                "nodes": 0,
+                "qnodes": 0,
+                "cutoffs": 0,
+
+                "tt_hits": 0,
+                "tt_probes": 0,
+
+                "max_ply": 0,
+                "max_qply": 0,
+            }
+            return tb_move, info
 
     move, value, depth, stats, elapsed = iterative_deepening(
         board, max_depth, engine_is_black=engine_is_black
