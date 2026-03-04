@@ -6,9 +6,9 @@ class AppColors {
 
   // Backgrounds
   static const Color background = Color(0xFF0D0D0D);
-  static const Color surface = Color(0xFF1A1A2E);
-  static const Color surfaceLight = Color(0xFF16213E);
-  static const Color card = Color(0xFF1E1E30);
+  static const Color surface = Color(0xFF1A1A1A);
+  static const Color surfaceLight = Color(0xFF222222);
+  static const Color card = Color(0xFF1E1E1E);
 
   // Accents
   static const Color primary = Color(0xFFE2B714); // Gold
@@ -18,8 +18,8 @@ class AppColors {
 
   // Text
   static const Color textPrimary = Color(0xFFF5F5F5);
-  static const Color textSecondary = Color(0xFFB0B0C0);
-  static const Color textMuted = Color(0xFF6A6A7A);
+  static const Color textSecondary = Color(0xFFB0B0B0);
+  static const Color textMuted = Color(0xFF6A6A6A);
 
   // Board
   static const Color boardLight = Color(0xFFF0D9B5);
@@ -39,13 +39,13 @@ class AppColors {
   static const LinearGradient backgroundGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
-    colors: [Color(0xFF0D0D0D), Color(0xFF1A1A2E), Color(0xFF0F3460)],
+    colors: [Color(0xFF0D0D0D), Color(0xFF141414), Color(0xFF1A1A1A)],
   );
 
   static const LinearGradient cardGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
-    colors: [Color(0xFF1E1E30), Color(0xFF2A2A40)],
+    colors: [Color(0xFF1E1E1E), Color(0xFF252525)],
   );
 
   static const LinearGradient goldGradient = LinearGradient(

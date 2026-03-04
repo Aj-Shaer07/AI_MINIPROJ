@@ -28,6 +28,7 @@ class MindGambitApp extends StatelessWidget {
               builder: (_) => GameScreen(
                 difficulty: args['difficulty'] as Difficulty,
                 playerIsWhite: args['playerIsWhite'] as bool,
+                timerSeconds: args['timerSeconds'] as int? ?? 0,
               ),
             );
           default:

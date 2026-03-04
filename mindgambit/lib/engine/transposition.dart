@@ -21,8 +21,10 @@ class TranspositionTable {
   final Map<String, TTEntry> _table = {};
 
   String _key(chess.Chess board) {
-    // Use board FEN (position only) + side to move as key
-    return board.fen;
+    // Match Python: use position + turn + castling + ep only (no move counters)
+    final fen = board.fen;
+    final parts = fen.split(' ');
+    return '${parts[0]} ${parts[1]} ${parts[2]} ${parts[3]}';
   }
 
   /// Probe the TT. Returns (score, move) or null.

@@ -889,7 +889,10 @@ const List<int> passedPawnBonusEg = [0, 15, 30, 50, 90, 150, 250, 0];
 const int bishopPairBonus = 30;
 const int rookOpenFileBonus = 25;
 const int rookSemiOpenFileBonus = 12;
+const int rookBehindPasserBonus = 40;
+const int connectedPasserBonus = 30;
 const int kingShieldBonus = 10;
+const double hangingPenaltyRatio = 0.5;
 
 // ─────────────────────────────────────────────────────────
 // Pre-computed square name table (avoid string allocs in hot path)
@@ -1125,6 +1128,59 @@ int evaluate(chess.Chess board, [int ply = 0]) {
         final effectiveRank = isWhite ? r : (7 - r);
         mgScore += sign * passedPawnBonusMg[effectiveRank];
         egScore += sign * passedPawnBonusEg[effectiveRank];
+
+        // Rook behind passed pawn bonus
+        for (final rsq in snap.rooks(isWhite)) {
+          if (_squareFile(rsq) == f) {
+            final rr = _squareRank(rsq);
+            if ((isWhite && rr < r) || (!isWhite && rr > r)) {
+              egScore += sign * rookBehindPasserBonus;
+              break;
+            }
+          }
+        }
+
+        // Connected passed pawns
+        final adjFiles = <int>[];
+        if (f > 0) adjFiles.add(f - 1);
+        if (f < 7) adjFiles.add(f + 1);
+        for (final adjF in adjFiles) {
+          for (final otherSq in pawns) {
+            if (otherSq != sq && _squareFile(otherSq) == adjF) {
+              final otherR = _squareRank(otherSq);
+              bool otherPassed = true;
+              final otherCheck = <int>[adjF];
+              if (adjF > 0) otherCheck.add(adjF - 1);
+              if (adjF < 7) otherCheck.add(adjF + 1);
+              for (final ep2 in enemyPawns) {
+                final ep2F = _squareFile(ep2);
+                final ep2R = _squareRank(ep2);
+                if (otherCheck.contains(ep2F)) {
+                  if (isWhite && ep2R > otherR) {
+                    otherPassed = false;
+                    break;
+                  }
+                  if (!isWhite && ep2R < otherR) {
+                    otherPassed = false;
+                    break;
+                  }
+                }
+              }
+              if (otherPassed && otherSq > sq) {
+                egScore += sign * connectedPasserBonus;
+              }
+            }
+          }
+        }
+
+        // King proximity to passed pawn (endgame)
+        if (effectiveRank >= 3) {
+          final ownKing = snap.king(isWhite);
+          final oppKing = snap.king(!isWhite);
+          final ownDist = _chebyshevDistance(ownKing, sq);
+          final oppDist = _chebyshevDistance(oppKing, sq);
+          egScore += sign * (oppDist * 5 - ownDist * 3);
+        }
       }
     }
   }
@@ -1162,8 +1218,10 @@ int evaluate(chess.Chess board, [int ply = 0]) {
         }
         if (!enemyPawnOnFile) {
           mgScore += sign * rookOpenFileBonus;
+          egScore += sign * rookOpenFileBonus;
         } else {
           mgScore += sign * rookSemiOpenFileBonus;
+          egScore += sign * rookSemiOpenFileBonus;
         }
       }
     }
@@ -1190,6 +1248,34 @@ int evaluate(chess.Chess board, [int ply = 0]) {
     }
   }
 
+  // Hanging pieces penalty
+  for (int side = 0; side < 2; side++) {
+    final isWhite = side == 0;
+    final sign = isWhite ? 1 : -1;
+    // For each non-pawn piece, check if it's attacked but not defended
+    void _checkHanging(List<int> squares, chess.PieceType pt) {
+      final val = pieceValues[pt] ?? 0;
+      for (final sq in squares) {
+        final sqName = _sqNames[sq];
+        // Check if attacked by opponent: opponent has a capture to this square
+        final oppColor = isWhite ? chess.Color.BLACK : chess.Color.WHITE;
+        final ownColor = isWhite ? chess.Color.WHITE : chess.Color.BLACK;
+        final isAttacked = _isSquareAttacked(board, sqName, oppColor);
+        final isDefended = _isSquareAttacked(board, sqName, ownColor);
+        if (isAttacked && !isDefended) {
+          final penalty = (val * hangingPenaltyRatio).toInt();
+          mgScore -= sign * penalty;
+          egScore -= sign * penalty;
+        }
+      }
+    }
+
+    _checkHanging(snap.knights(isWhite), chess.PieceType.KNIGHT);
+    _checkHanging(snap.bishops(isWhite), chess.PieceType.BISHOP);
+    _checkHanging(snap.rooks(isWhite), chess.PieceType.ROOK);
+    _checkHanging(snap.queens(isWhite), chess.PieceType.QUEEN);
+  }
+
   // Tapered evaluation
   final cp = phase > totalPhase ? totalPhase : phase;
   int score = (mgScore * cp + egScore * (totalPhase - cp)) ~/ totalPhase;
@@ -1207,7 +1293,170 @@ int evaluate(chess.Chess board, [int ply = 0]) {
     final prox = (14 - _chebyshevDistance(winningKing, losingKing)) * 8;
     final scale = (matAdv.abs() ~/ 100).clamp(0, 10);
     score += sign * ((edge + prox) * scale ~/ 5);
+
+    // K+B+B vs K: drive king to corner
+    if (_isKbbVsK(snap, winWhite)) {
+      score += sign * _kbbCornerBonus(snap, losingKing, winWhite);
+    }
+
+    // K+B+N vs K: drive king to bishop-color corner
+    if (_isKbnVsK(snap, winWhite)) {
+      score += sign * _kbnCornerBonus(snap, losingKing, winningKing, winWhite);
+    }
+  }
+
+  // Stalemate avoidance
+  if (matAdv.abs() >= 200) {
+    final losingIsWhite = matAdv > 0 ? false : true;
+    final losingColor = losingIsWhite ? chess.Color.WHITE : chess.Color.BLACK;
+    if (board.turn == losingColor) {
+      final numMoves = board.generate_moves().length;
+      if (numMoves <= 2) {
+        final sign = matAdv > 0 ? 1 : -1;
+        score -= sign * (60 - numMoves * 25);
+      }
+    }
+  }
+
+  // 50-move rule score decay
+  final halfmoveClock = board.half_moves;
+  if (halfmoveClock > 30 && score.abs() > 100) {
+    final decayFactor = ((100 - halfmoveClock) / 70).clamp(0.0, 1.0);
+    final absScore = score.abs();
+    score = (absScore * decayFactor).toInt() * (score > 0 ? 1 : -1);
   }
 
   return score;
+}
+
+// ─────────────────────────────────────────────────────────
+// ATTACK DETECTION HELPER
+// ─────────────────────────────────────────────────────────
+bool _isSquareAttacked(
+  chess.Chess board,
+  String squareName,
+  chess.Color byColor,
+) {
+  // Generate all moves for the attacking side and check if any target this square
+  // We temporarily check by looking at the board's attack info
+  // Use a simplified approach: check if any piece of byColor can move to squareName
+  final moves = board.generate_moves({'legal': false});
+  for (final m in moves) {
+    if (m.toAlgebraic == squareName) {
+      final piece = board.get(m.fromAlgebraic);
+      if (piece != null && piece.color == byColor) return true;
+    }
+  }
+  return false;
+}
+
+// ─────────────────────────────────────────────────────────
+// ENDGAME PATTERN HELPERS
+// ─────────────────────────────────────────────────────────
+bool _isKbbVsK(_BoardSnapshot snap, bool winningIsWhite) {
+  // Losing side: only king (no pieces)
+  if (snap.pawns(!winningIsWhite).isNotEmpty ||
+      snap.knights(!winningIsWhite).isNotEmpty ||
+      snap.bishops(!winningIsWhite).isNotEmpty ||
+      snap.rooks(!winningIsWhite).isNotEmpty ||
+      snap.queens(!winningIsWhite).isNotEmpty)
+    return false;
+  // Winning side: exactly two bishops, nothing else
+  if (snap.bishops(winningIsWhite).length != 2) return false;
+  if (snap.pawns(winningIsWhite).isNotEmpty ||
+      snap.knights(winningIsWhite).isNotEmpty ||
+      snap.rooks(winningIsWhite).isNotEmpty ||
+      snap.queens(winningIsWhite).isNotEmpty)
+    return false;
+  return true;
+}
+
+int _kbbCornerBonus(
+  _BoardSnapshot snap,
+  int losingKingSq,
+  bool winningIsWhite,
+) {
+  final bishops = snap.bishops(winningIsWhite);
+  if (bishops.length != 2) return 0;
+  final b1Color = (_squareFile(bishops[0]) + _squareRank(bishops[0])) % 2;
+  final b2Color = (_squareFile(bishops[1]) + _squareRank(bishops[1])) % 2;
+  if (b1Color == b2Color) return 0; // same color bishops, can't mate
+
+  final lf = _squareFile(losingKingSq);
+  final lr = _squareRank(losingKingSq);
+  final corners = [
+    [0, 0],
+    [0, 7],
+    [7, 0],
+    [7, 7],
+  ];
+  int minDist = 99;
+  for (final c in corners) {
+    // Use file/rank Chebyshev distance to corner
+    final fd = (lf - c[0]).abs();
+    final rd = (lr - c[1]).abs();
+    final dist = fd > rd ? fd : rd;
+    if (dist < minDist) minDist = dist;
+  }
+  return (7 - minDist) * 20;
+}
+
+bool _isKbnVsK(_BoardSnapshot snap, bool winningIsWhite) {
+  // Losing side: only king
+  if (snap.pawns(!winningIsWhite).isNotEmpty ||
+      snap.knights(!winningIsWhite).isNotEmpty ||
+      snap.bishops(!winningIsWhite).isNotEmpty ||
+      snap.rooks(!winningIsWhite).isNotEmpty ||
+      snap.queens(!winningIsWhite).isNotEmpty)
+    return false;
+  // Winning side: exactly one bishop + one knight, nothing else
+  if (snap.bishops(winningIsWhite).length != 1) return false;
+  if (snap.knights(winningIsWhite).length != 1) return false;
+  if (snap.pawns(winningIsWhite).isNotEmpty ||
+      snap.rooks(winningIsWhite).isNotEmpty ||
+      snap.queens(winningIsWhite).isNotEmpty)
+    return false;
+  return true;
+}
+
+int _kbnCornerBonus(
+  _BoardSnapshot snap,
+  int losingKingSq,
+  int winningKingSq,
+  bool winningIsWhite,
+) {
+  final bishops = snap.bishops(winningIsWhite);
+  if (bishops.length != 1) return 0;
+  final bsq = bishops[0];
+  final bishopColor = (_squareFile(bsq) + _squareRank(bsq)) % 2;
+
+  // Target corners matching bishop's square color
+  // a1=(0,0) dark(0), h8=(7,7) dark(0), a8=(0,7) light(1), h1=(7,0) light(1)
+  List<List<int>> targetCorners;
+  if (bishopColor == 0) {
+    targetCorners = [
+      [0, 0],
+      [7, 7],
+    ]; // dark-square bishop
+  } else {
+    targetCorners = [
+      [0, 7],
+      [7, 0],
+    ]; // light-square bishop
+  }
+
+  final lf = _squareFile(losingKingSq);
+  final lr = _squareRank(losingKingSq);
+  int minDist = 99;
+  for (final c in targetCorners) {
+    final fd = (lf - c[0]).abs();
+    final rd = (lr - c[1]).abs();
+    final dist = fd > rd ? fd : rd;
+    if (dist < minDist) minDist = dist;
+  }
+
+  final cornerBonus = (7 - minDist) * 40;
+  final kingDist = _chebyshevDistance(winningKingSq, losingKingSq);
+  final proximityBonus = (7 - kingDist) * 10;
+  return cornerBonus + proximityBonus;
 }

@@ -137,39 +137,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       ),
                     ),
 
-                    const SizedBox(height: 80),
-
-                    // Algorithm info
-                    Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        gradient: AppColors.cardGradient,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: AppColors.primary.withValues(alpha: 0.1),
-                        ),
-                      ),
-                      child: Column(
-                        children: [
-                          Text('Powered By', style: AppTextStyles.labelLarge),
-                          const SizedBox(height: 12),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 6,
-                            alignment: WrapAlignment.center,
-                            children: [
-                              _chip('Negamax α-β'),
-                              _chip('PVS'),
-                              _chip('LMR'),
-                              _chip('PeSTO Eval'),
-                              _chip('Iterative Deepening'),
-                              _chip('Transposition Table'),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-
                     const SizedBox(height: 40),
                   ],
                 ),
@@ -177,21 +144,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _chip(String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppColors.primary.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
-      ),
-      child: Text(
-        label,
-        style: AppTextStyles.bodySmall.copyWith(color: AppColors.primary),
       ),
     );
   }

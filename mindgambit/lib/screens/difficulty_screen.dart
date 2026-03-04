@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../models/difficulty.dart';
+import '../models/timer_option.dart';
 import '../core/app_router.dart';
 
 /// Difficulty selection screen with level cards and color picker.
@@ -15,6 +16,7 @@ class DifficultyScreen extends StatefulWidget {
 class _DifficultyScreenState extends State<DifficultyScreen> {
   Difficulty _selected = Difficulty.medium;
   bool _playAsWhite = true;
+  TimerOption _timerOption = TimerOption.fiveMin;
 
   @override
   Widget build(BuildContext context) {
@@ -88,60 +90,73 @@ class _DifficultyScreenState extends State<DifficultyScreen> {
 
                       const SizedBox(height: 24),
 
-                      // Algorithm info for selected difficulty
+                      // Timer selection
                       Container(
-                        padding: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.all(20),
                         decoration: BoxDecoration(
-                          color: AppColors.card,
-                          borderRadius: BorderRadius.circular(12),
+                          gradient: AppColors.cardGradient,
+                          borderRadius: BorderRadius.circular(16),
                           border: Border.all(
                             color: AppColors.primary.withValues(alpha: 0.1),
                           ),
                         ),
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'AI Techniques (${_selected.label})',
-                              style: AppTextStyles.labelLarge,
+                              'Time Control',
+                              style: AppTextStyles.titleMedium,
                             ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Search Depth: ${_selected.depth}',
-                              style: AppTextStyles.bodySmall,
-                            ),
-                            const SizedBox(height: 8),
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 4,
-                              children: _selected.techniques
-                                  .map(
-                                    (t) => Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                        vertical: 4,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: AppColors.accent.withValues(
-                                          alpha: 0.1,
+                            const SizedBox(height: 16),
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: TimerOption.values.map((t) {
+                                  final isSelected = _timerOption == t;
+                                  return Padding(
+                                    padding: const EdgeInsets.only(right: 8),
+                                    child: GestureDetector(
+                                      onTap: () =>
+                                          setState(() => _timerOption = t),
+                                      child: AnimatedContainer(
+                                        duration: const Duration(
+                                          milliseconds: 200,
                                         ),
-                                        borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(
-                                          color: AppColors.accent.withValues(
-                                            alpha: 0.2,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 10,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: isSelected
+                                              ? AppColors.primary.withValues(
+                                                  alpha: 0.15,
+                                                )
+                                              : AppColors.surface,
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                          border: Border.all(
+                                            color: isSelected
+                                                ? AppColors.primary
+                                                : AppColors.textMuted
+                                                      .withValues(alpha: 0.2),
+                                            width: isSelected ? 2 : 1,
                                           ),
                                         ),
-                                      ),
-                                      child: Text(
-                                        t,
-                                        style: AppTextStyles.bodySmall.copyWith(
-                                          color: AppColors.accent,
-                                          fontSize: 11,
+                                        child: Text(
+                                          t.label,
+                                          style: AppTextStyles.bodySmall
+                                              .copyWith(
+                                                color: isSelected
+                                                    ? AppColors.primary
+                                                    : AppColors.textMuted,
+                                                fontWeight: FontWeight.w600,
+                                              ),
                                         ),
                                       ),
                                     ),
-                                  )
-                                  .toList(),
+                                  );
+                                }).toList(),
+                              ),
                             ),
                           ],
                         ),
@@ -308,7 +323,11 @@ class _DifficultyScreenState extends State<DifficultyScreen> {
     Navigator.pushNamed(
       context,
       AppRouter.game,
-      arguments: {'difficulty': _selected, 'playerIsWhite': _playAsWhite},
+      arguments: {
+        'difficulty': _selected,
+        'playerIsWhite': _playAsWhite,
+        'timerSeconds': _timerOption.seconds,
+      },
     );
   }
 }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:chess/chess.dart' as chess;
 import 'package:flutter/foundation.dart';
 import 'search.dart';
+import 'transposition.dart';
 import '../models/difficulty.dart';
 import '../models/engine_result.dart';
 
@@ -10,6 +11,14 @@ import '../models/engine_result.dart';
 // CHESS ENGINE — compute() wrapper for non-blocking AI
 // ─────────────────────────────────────────────────────────
 class ChessEngine {
+  /// Persistent transposition table — survives across moves (like Python's global TT).
+  /// Note: this is only used for the sync path. The isolate compute() path
+  /// creates its own TT per call since isolate boundaries prevent sharing.
+  static final TranspositionTable _tt = TranspositionTable();
+
+  /// Clear the transposition table (call when starting a new game).
+  static void clearTT() => _tt.clear();
+
   /// Compute the best move asynchronously via Flutter compute().
   static Future<EngineResult> findBestMove({
     required String fen,
@@ -28,7 +37,7 @@ class ChessEngine {
       return result;
     } catch (e) {
       debugPrint('[ChessEngine] Error in compute: $e');
-      // Fallback: run synchronously
+      // Fallback: run synchronously (uses persistent TT)
       return findBestMoveSync(
         fen: fen,
         difficulty: difficulty,
@@ -37,7 +46,7 @@ class ChessEngine {
     }
   }
 
-  /// Synchronous search (fallback).
+  /// Synchronous search (fallback) — uses persistent TT.
   static EngineResult findBestMoveSync({
     required String fen,
     required Difficulty difficulty,
@@ -48,6 +57,7 @@ class ChessEngine {
       board,
       difficulty.depth,
       engineIsBlack: engineIsBlack,
+      tt: _tt,
     );
 
     String? moveStr;
@@ -89,6 +99,9 @@ EngineResult _computeSearch(_SearchParams params) {
     board,
     params.maxDepth,
     engineIsBlack: params.engineIsBlack,
+    // Note: no external TT here — isolates can't share objects.
+    // Each isolate call gets a fresh TT. This matches the Python behavior
+    // for the primary compute path since Python also doesn't have threading.
   );
 
   String? moveStr;

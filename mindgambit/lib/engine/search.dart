@@ -1,6 +1,7 @@
 import 'package:chess/chess.dart' as chess;
 import 'evaluation.dart';
 import 'move_ordering.dart';
+import 'tablebase.dart';
 import 'transposition.dart';
 
 // ─────────────────────────────────────────────────────────
@@ -42,7 +43,40 @@ bool _movesEqual(chess.Move a, chess.Move b) {
 }
 
 bool _isRepetition(chess.Chess board) {
-  return board.in_threefold_repetition;
+  // Match Python's is_repetition(2): detect 2-fold repetition.
+  // Count how many times the current position FEN (board + turn + castling + ep)
+  // has appeared in the game history.
+  final fen = board.fen;
+  final parts = fen.split(' ');
+  final posKey = '${parts[0]} ${parts[1]} ${parts[2]} ${parts[3]}';
+
+  // Walk backwards through the move history by undoing moves,
+  // checking the position key at each step.
+  // We use a simpler approach: the chess package exposes the header/fen list
+  // implicitly. We'll use the board's built-in by counting via undo/redo.
+  int count = 1; // current position counts as 1
+  final undone = <chess.Move>[];
+  // Only need to check back to last irreversible move (capture/pawn move)
+  while (board.half_moves > 0) {
+    final move = board.undo_move();
+    if (move == null) break;
+    undone.add(move);
+    final hFen = board.fen;
+    final hParts = hFen.split(' ');
+    final hKey = '${hParts[0]} ${hParts[1]} ${hParts[2]} ${hParts[3]}';
+    if (hKey == posKey) {
+      count++;
+      if (count >= 2) break; // 2-fold found
+    }
+    // If halfmove clock is 0 in the reached position, no earlier
+    // position can match (irreversible move happened)
+    if (board.half_moves == 0) break;
+  }
+  // Redo all undone moves to restore the board
+  for (int i = undone.length - 1; i >= 0; i--) {
+    board.move(undone[i]);
+  }
+  return count >= 2;
 }
 
 // ─────────────────────────────────────────────────────────
@@ -144,7 +178,32 @@ int quiescence(
   final inCheck = board.in_check;
   final ttMove = tt.probeMove(board);
 
-  // Null-move pruning: skipped — chess package doesn't support null moves
+  // ── Null-Move Pruning ──────────────────────────────────────
+  // Simulate a null move by flipping the side-to-move in a board copy.
+  // Skip when: in check, at root (ply == 0), shallow depth, or near-zugzwang.
+  if (!inCheck && depth >= 3 && ply > 0 && _hasNonPawnMaterial(board)) {
+    final nullBoard = _makeNullMoveBoard(board);
+    if (nullBoard != null) {
+      final nullResult = negamax(
+        nullBoard,
+        depth - 3,
+        -beta,
+        -beta + 1,
+        ply + 1,
+        checkExtUsed,
+        stats,
+        killers,
+        history,
+        tt,
+        sw,
+      );
+      final nullScore = -nullResult.score;
+      if (nullScore >= beta) {
+        stats.cutoffs++;
+        return (score: beta, move: null);
+      }
+    }
+  }
 
   var moves = board.generate_moves();
   final plyKillers = killers[ply] ?? [];
@@ -311,6 +370,7 @@ iterativeDeepening(
   chess.Chess board,
   int maxDepth, {
   bool engineIsBlack = true,
+  TranspositionTable? externalTT,
 }) {
   final stats = SearchStats();
   final sw = Stopwatch()..start();
@@ -321,7 +381,23 @@ iterativeDeepening(
 
   final killers = <int, List<chess.Move>>{};
   final history = <String, int>{};
-  final tt = TranspositionTable();
+  final tt = externalTT ?? TranspositionTable();
+
+  // Endgame depth boost: fewer pieces -> lower branching factor -> search deeper.
+  // Matches Python's iterative_deepening() logic exactly.
+  // The chess package uses a 0x88 board (128-element List); valid squares
+  // satisfy (index & 0x88) == 0 — gives 64 valid slots out of 128.
+  int totalPieces = 0;
+  for (int i = 0; i < 128; i++) {
+    if ((i & 0x88) == 0 && board.board[i] != null) totalPieces++;
+  }
+  if (totalPieces <= 6) {
+    maxDepth += 3; // K+Q vs K, K+R vs K
+  } else if (totalPieces <= 10) {
+    maxDepth += 2; // simple endgames
+  } else if (totalPieces <= 16) {
+    maxDepth += 1; // middlegame-to-endgame transition
+  }
 
   int prevScore = 0;
   const aspirationWindow = 50;
@@ -401,63 +477,72 @@ iterativeDeepening(
 // OPENING BOOK — instant replies for common openings
 // ─────────────────────────────────────────────────────────
 chess.Move? _findOpeningMove(chess.Chess board) {
-  final moves = board.generate_moves();
-
-  chess.Move? _findMove(String from, String to) {
-    for (final m in moves) {
-      if (m.fromAlgebraic == from && m.toAlgebraic == to && m.promotion == null)
-        return m;
-    }
-    return null;
-  }
-
+  // Match Python: only handle Black's first reply to 1.e4 and 1.d4
   final hist = board.getHistory();
 
-  // White's first move
-  if (hist.isEmpty && board.turn == chess.Color.WHITE) {
-    // Play e4 or d4
-    return _findMove('e2', 'e4') ?? _findMove('d2', 'd4');
-  }
-
-  // Black's first reply
   if (hist.length == 1 && board.turn == chess.Color.BLACK) {
+    final moves = board.generate_moves();
+    chess.Move? findMove(String from, String to) {
+      for (final m in moves) {
+        if (m.fromAlgebraic == from &&
+            m.toAlgebraic == to &&
+            m.promotion == null)
+          return m;
+      }
+      return null;
+    }
+
     final whiteMove = hist.first;
-    if (whiteMove == 'e4')
-      return _findMove('e7', 'e5') ?? _findMove('c7', 'c5');
-    if (whiteMove == 'd4')
-      return _findMove('d7', 'd5') ?? _findMove('g8', 'f6');
-    if (whiteMove == 'Nf3')
-      return _findMove('d7', 'd5') ?? _findMove('g8', 'f6');
-    if (whiteMove == 'c4')
-      return _findMove('e7', 'e5') ?? _findMove('g8', 'f6');
-    // Default: play e5 or d5
-    return _findMove('e7', 'e5') ?? _findMove('d7', 'd5');
-  }
-
-  // White's second move
-  if (hist.length == 2 && board.turn == chess.Color.WHITE) {
-    final w1 = hist[0];
-    final b1 = hist[1];
-    if (w1 == 'e4' && b1 == 'e5') return _findMove('g1', 'f3'); // Nf3
-    if (w1 == 'e4' && b1 == 'c5')
-      return _findMove('g1', 'f3'); // Nf3 (Sicilian)
-    if (w1 == 'd4' && b1 == 'd5')
-      return _findMove('c2', 'c4'); // c4 (Queen's Gambit)
-    if (w1 == 'd4' && b1 == 'Nf6') return _findMove('c2', 'c4'); // c4
-  }
-
-  // Black's second move
-  if (hist.length == 3 && board.turn == chess.Color.BLACK) {
-    final w1 = hist[0];
-    final b1 = hist[1];
-    final w2 = hist[2];
-    if (w1 == 'e4' && b1 == 'e5' && w2 == 'Nf3')
-      return _findMove('b8', 'c6'); // Nc6
-    if (w1 == 'd4' && b1 == 'd5' && w2 == 'c4')
-      return _findMove('e7', 'e6'); // e6 (QGD)
+    if (whiteMove == 'e4') {
+      final reply = findMove('e7', 'e5');
+      if (reply != null) return reply;
+    }
+    if (whiteMove == 'd4') {
+      final reply = findMove('d7', 'd5');
+      if (reply != null) return reply;
+    }
   }
 
   return null;
+}
+
+// ─────────────────────────────────────────────────────────
+// NULL-MOVE HELPERS
+// ─────────────────────────────────────────────────────────
+
+/// Create a board copy with the side-to-move flipped (simulates a null move).
+/// Returns null if the FEN cannot be rebuilt (shouldn't happen for normal positions).
+chess.Chess? _makeNullMoveBoard(chess.Chess board) {
+  try {
+    final fen = board.fen;
+    final parts = fen.split(' ');
+    if (parts.length < 6) return null;
+    // Flip side to move
+    parts[1] = parts[1] == 'w' ? 'b' : 'w';
+    // Clear en-passant square
+    parts[3] = '-';
+    // Increment halfmove clock
+    final hm = int.tryParse(parts[4]) ?? 0;
+    parts[4] = (hm + 1).toString();
+    final newFen = parts.join(' ');
+    final copy = chess.Chess.fromFEN(newFen);
+    return copy;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Returns true if the side to move has at least one non-pawn, non-king piece.
+bool _hasNonPawnMaterial(chess.Chess board) {
+  for (int i = 0; i < 128; i++) {
+    if ((i & 0x88) != 0) continue;
+    final p = board.board[i];
+    if (p == null || p.color != board.turn) continue;
+    if (p.type != chess.PieceType.PAWN && p.type != chess.PieceType.KING) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // ─────────────────────────────────────────────────────────
@@ -467,6 +552,7 @@ chess.Move? _findOpeningMove(chess.Chess board) {
   chess.Chess board,
   int maxDepth, {
   bool engineIsBlack = true,
+  TranspositionTable? tt,
 }) {
   // Try opening book first (instant)
   final bookMove = _findOpeningMove(board);
@@ -488,10 +574,33 @@ chess.Move? _findOpeningMove(chess.Chess board) {
     );
   }
 
+  // Try built-in tablebase for ≤4-piece endgames (mirrors Python tablebase.py)
+  if (isTablebaseLoaded()) {
+    final tbMove = tablebaseMoveForRoot(board);
+    if (tbMove != null) {
+      return (
+        move: tbMove,
+        info: {
+          'eval_cp': 0,
+          'depth': 0,
+          'time_ms': 0,
+          'nodes': 0,
+          'qnodes': 0,
+          'cutoffs': 0,
+          'tt_hits': 0,
+          'tt_probes': 0,
+          'max_ply': 0,
+          'max_qply': 0,
+        },
+      );
+    }
+  }
+
   final result = iterativeDeepening(
     board,
     maxDepth,
     engineIsBlack: engineIsBlack,
+    externalTT: tt,
   );
 
   return (
