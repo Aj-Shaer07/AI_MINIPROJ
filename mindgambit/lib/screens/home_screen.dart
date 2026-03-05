@@ -137,6 +137,33 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       ),
                     ),
 
+                    const SizedBox(height: 20),
+
+                    // Endgame Tester button
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pushNamed(context, AppRouter.endgameTest);
+                      },
+                      icon: const Icon(Icons.science_outlined, size: 20),
+                      label: Text(
+                        'ENDGAME TESTER',
+                        style: AppTextStyles.button.copyWith(fontSize: 13),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.accent,
+                        side: BorderSide(
+                          color: AppColors.accent.withValues(alpha: 0.5),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 32,
+                          vertical: 14,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                    ),
+
                     const SizedBox(height: 40),
                   ],
                 ),

@@ -14,12 +14,14 @@ class GameScreen extends StatefulWidget {
   final Difficulty difficulty;
   final bool playerIsWhite;
   final int timerSeconds;
+  final String? fen;
 
   const GameScreen({
     super.key,
     required this.difficulty,
     required this.playerIsWhite,
     this.timerSeconds = 0,
+    this.fen,
   });
 
   @override
@@ -48,6 +50,7 @@ class _GameScreenState extends State<GameScreen> {
     _gameState = GameState(
       difficulty: widget.difficulty,
       playerIsWhite: widget.playerIsWhite,
+      fen: widget.fen,
     );
     _boardFlipped = !widget.playerIsWhite;
     _whiteTimeLeft = widget.timerSeconds;
@@ -447,6 +450,7 @@ class _GameScreenState extends State<GameScreen> {
       _gameState = GameState(
         difficulty: widget.difficulty,
         playerIsWhite: widget.playerIsWhite,
+        fen: widget.fen,
       );
       _selectedSquare = null;
       _legalMoves = [];

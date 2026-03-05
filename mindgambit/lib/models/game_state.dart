@@ -15,7 +15,9 @@ class GameState {
     required this.difficulty,
     required this.playerIsWhite,
     chess.Chess? board,
-  }) : board = board ?? chess.Chess(),
+    String? fen,
+  }) : board =
+           board ?? (fen != null ? chess.Chess.fromFEN(fen) : chess.Chess()),
        moveHistory = [],
        capturedByWhite = [],
        capturedByBlack = [],
