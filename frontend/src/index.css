@@ -1,11 +1,77 @@
+/* ─── UI References Design System ─── */
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  /* Core colors */
+  --bg-primary: #121216;
+  /* BG_COLOR */
+  --bg-secondary: #1a1a1e;
+  /* PANEL_BG_COLOR */
+  --bg-tertiary: #222226;
+  /* PANEL_HEADER_BG */
+  --bg-elevated: #323237;
+  /* PANEL_BORDER_COLOR */
+
+  /* Board colors */
+  --board-light: #ebd7b4;
+  /* LIGHT_COLOR */
+  --board-dark: #af8460;
+  /* DARK_COLOR */
+  --board-highlight: rgba(186, 202, 68, 0.39);
+  /* HIGHLIGHT_COLOR */
+  --board-last-move: rgba(246, 246, 110, 0.47);
+  /* LAST_MOVE_COLOR */
+  --board-possible: rgba(100, 160, 80, 0.7);
+  /* MOVE_DOT_COLOR */
+  --board-possible-capture: rgba(100, 160, 80, 0.7);
+
+  /* Arrows */
+  --arrow-last-move: rgba(247, 247, 172, 0.8);
+  --arrow-premove: rgba(73, 112, 255, 0.763);
+
+  /* Accent */
+  --accent-green: #54c481;
+  /* EVAL_BAR_WHITE_COLOR */
+  --accent-green-hover: #46a169;
+  --accent-green-dark: #377d51;
+  --accent-red: #b43232;
+  /* RESIGN_BTN_COLOR */
+  --accent-red-hover: #d23c3c;
+  /* RESIGN_BTN_HOVER */
+  --accent-gold: #e6bc97;
+  /* POPUP_ACCENT */
+
+  /* Text */
+  --text-primary: #ffffff;
+  /* PANEL_TITLE_COLOR */
+  --text-secondary: #d2d2d7;
+  /* PANEL_TEXT_COLOR */
+  --text-muted: #aaaaaa;
+  /* LABEL_COLOR */
+  --text-dim: #888888;
+
+  /* Eval bar */
+  --eval-white: #ffffff;
+  --eval-black: #1c1c20;
+  /* EVAL_BAR_BG */
+
+  /* Borders */
+  --border-subtle: #323237;
+  /* PANEL_BORDER_COLOR */
+  --border-medium: #4a4a50;
+
+  /* Sizing */
+  --square-size: 72px;
+  --board-radius: 4px;
+  --panel-width: 280px;
+  --eval-bar-width: 28px;
+  --header-height: 48px;
+
+  /* Typography */
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -13,56 +79,53 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
   min-width: 320px;
   min-height: 100vh;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  overflow: hidden;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+a {
+  font-weight: 500;
+  color: var(--accent-green);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+a:hover {
+  color: var(--accent-green-hover);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  line-height: 1.2;
+  font-weight: 700;
 }
 
 button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
   font-family: inherit;
-  background-color: #1a1a1a;
   cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
+  border: none;
+  outline: none;
+  transition: all 0.15s ease;
 }

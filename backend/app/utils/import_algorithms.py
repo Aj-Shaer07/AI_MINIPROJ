@@ -25,6 +25,7 @@ def load_algorithms():
         move_generation = importlib.import_module("move_generation")
         move_ordering = importlib.import_module("move_ordering")
         transposition = importlib.import_module("transposition")
+        tablebase = importlib.import_module("tablebase")
         # import search last so its unqualified imports resolve
         search = importlib.import_module("search")
     except ModuleNotFoundError:
@@ -32,6 +33,7 @@ def load_algorithms():
         move_generation = importlib.import_module("algorithms.move_generation")
         move_ordering = importlib.import_module("algorithms.move_ordering")
         transposition = importlib.import_module("algorithms.transposition")
+        tablebase = importlib.import_module("algorithms.tablebase")
         search = importlib.import_module("algorithms.search")
 
     return {
@@ -39,5 +41,6 @@ def load_algorithms():
         "move_generation": move_generation,
         "move_ordering": move_ordering,
         "transposition": transposition,
+        "tablebase": tablebase,
         "search": search,
     }

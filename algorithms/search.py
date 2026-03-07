@@ -385,6 +385,17 @@ def search_with_info(board, max_depth, engine_is_black=True):
         board, max_depth, engine_is_black=engine_is_black
     )
 
+    if move is None:
+        legal_moves = list(board.legal_moves)
+        if legal_moves:
+            # Fallback to the first available legal move or probe TT
+            try:
+                from algorithms.transposition import probe_move
+                probe = probe_move(board)
+                move = probe if probe in legal_moves else legal_moves[0]
+            except Exception:
+                move = legal_moves[0]
+
     info = {
         "move": move,
         "eval_cp": int(value),
