@@ -10,6 +10,7 @@ type UseGameControllerOpts = {
   timeControlMin?: number
   incrementSec?: number
   enableCoachMode?: boolean
+  enableClocks?: boolean
   botId?: string
 }
 
@@ -33,7 +34,7 @@ const squareToCoords = (sq: string): [number, number] => [8 - parseInt(sq[1]), s
 const coordsToSquare = (r: number, c: number) => `${String.fromCharCode(97 + c)}${8 - r}`
 
 export default function useGameController(opts: UseGameControllerOpts = {}) {
-  const { playerColor = 'white', maxDepth = 3, timeControlMin = 5, incrementSec = 0, enableCoachMode = false, botId } = opts
+  const { playerColor = 'white', maxDepth = 3, timeControlMin = 5, incrementSec = 0, enableCoachMode = false, enableClocks = false, botId } = opts
 
   // The single source of truth chess instance lives in a ref so effects always read
   // the latest game without stale closures.
@@ -108,7 +109,7 @@ export default function useGameController(opts: UseGameControllerOpts = {}) {
   turnRef.current = turn
 
   useEffect(() => {
-    if (gameOverReason) return
+    if (gameOverReason || !enableClocks) return
     const id = window.setInterval(() => {
       if (turnRef.current === 'white') {
         setWhiteTime(t => {

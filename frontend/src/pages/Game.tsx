@@ -29,6 +29,7 @@ export default function Game() {
     timeControlMin: parseInt(settings.timeControl) || 5,
     incrementSec: parseInt(settings.increment) || 0,
     enableCoachMode: settings.enableCoachMode,
+    enableClocks: settings.showPlayerClock || settings.showEngineClock,
     botId: settings.botId,
   })
   const [selected, setSelected] = useState<[number, number] | null>(null)

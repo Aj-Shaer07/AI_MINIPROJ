@@ -160,6 +160,13 @@ def get_router(modules: Dict[str, Any]) -> APIRouter:
         for k, v in info.items():
             if k == "move":
                 info_serializable[k] = v.uci() if v is not None else None
+            elif k == "time_ms":
+                info_serializable["time_ms"] = int(v)
+                info_serializable["time_s"] = f"{int(v) / 1000.0:.2f}"
+            elif k == "qnodes":
+                info_serializable["q_nodes"] = int(v)
+            elif k == "max_qply":
+                info_serializable["max_q_ply"] = int(v)
             else:
                 try:
                     info_serializable[k] = int(v)
