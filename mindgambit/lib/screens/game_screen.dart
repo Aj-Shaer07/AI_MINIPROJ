@@ -14,6 +14,7 @@ class GameScreen extends StatefulWidget {
   final Difficulty difficulty;
   final bool playerIsWhite;
   final int timerSeconds;
+  final bool enableExplanation;
   final String? fen;
 
   const GameScreen({
@@ -21,6 +22,7 @@ class GameScreen extends StatefulWidget {
     required this.difficulty,
     required this.playerIsWhite,
     this.timerSeconds = 0,
+    this.enableExplanation = true,
     this.fen,
   });
 
@@ -35,7 +37,7 @@ class _GameScreenState extends State<GameScreen> {
   chess.Move? _lastMove;
   bool _boardFlipped = false;
   int _evalCp = 0;
-  Map<String, int> _engineInfo = {};
+  Map<String, dynamic> _engineInfo = {};
   final ScrollController _moveScrollController = ScrollController();
 
   // Chess clock
@@ -360,6 +362,10 @@ class _GameScreenState extends State<GameScreen> {
                 'depth': result.depth,
                 'time_ms': result.timeMs,
                 'nodes': result.nodes,
+                'explanation':
+                    widget.enableExplanation ? result.explanation : null,
+                'alternatives':
+                    widget.enableExplanation ? result.alternatives : const [],
               };
               _gameState.isEngineThinking = false;
             });
@@ -597,6 +603,8 @@ class _GameScreenState extends State<GameScreen> {
 
   // ─── Narrow (Portrait) Layout ──────────────────────────
   Widget _buildNarrowLayout(BoxConstraints constraints) {
+    final showExplainButton = widget.enableExplanation;
+
     return Column(
       children: [
         _buildTitleBar(),
@@ -632,18 +640,27 @@ class _GameScreenState extends State<GameScreen> {
         // Compact action bar
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-          child: _buildCompactActions(),
+          child: _buildCompactActions(showExplainButton: showExplainButton),
         ),
       ],
     );
   }
 
   // ─── Compact Action Bar (Phone) ────────────────────────
-  Widget _buildCompactActions() {
+  Widget _buildCompactActions({required bool showExplainButton}) {
     return Row(
       children: [
         _compactBtn(Icons.history, 'History', _showHistorySheet),
         const SizedBox(width: 8),
+        if (showExplainButton) ...[
+          _compactBtn(
+            Icons.lightbulb_outline,
+            'Explain',
+            _hasShortExplanation ? _showPortraitExplanationPopup : null,
+            color: AppColors.primary,
+          ),
+          const SizedBox(width: 8),
+        ],
         _compactBtn(
           Icons.undo,
           'Undo',
@@ -668,6 +685,70 @@ class _GameScreenState extends State<GameScreen> {
         if (_gameState.isGameOver)
           _compactBtn(Icons.add, 'New', _newGame, color: AppColors.accent),
       ],
+    );
+  }
+
+  bool get _hasShortExplanation {
+    if (!widget.enableExplanation) return false;
+    final explanation = _engineInfo['explanation'];
+    if (explanation is! Map<String, dynamic>) return false;
+    final narrative = explanation['narrative'];
+    return narrative is List && narrative.isNotEmpty;
+  }
+
+  void _showPortraitExplanationPopup() {
+    final explanation = _engineInfo['explanation'] as Map<String, dynamic>?;
+    if (explanation == null) return;
+
+    final narrative = (explanation['narrative'] as List<dynamic>? ?? [])
+        .whereType<String>()
+        .toList();
+    final shortLines = narrative.take(2).toList();
+    final scoreCp = explanation['after_eval_cp'] as int? ?? _evalCp;
+    final scoreText = (scoreCp / 100.0).toStringAsFixed(2);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('AI Explanation', style: AppTextStyles.titleLarge),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Eval: ${scoreCp >= 0 ? '+' : ''}$scoreText',
+              style: AppTextStyles.bodyMedium.copyWith(
+                color: scoreCp >= 0 ? Colors.greenAccent : Colors.redAccent,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 10),
+            if (shortLines.isEmpty)
+              Text(
+                'No explanation available yet. Play a move and try again.',
+                style: AppTextStyles.bodyMedium.copyWith(
+                  color: AppColors.textMuted,
+                ),
+              ),
+            for (final line in shortLines)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(
+                  '- $line',
+                  style: AppTextStyles.bodyMedium,
+                ),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Close', style: TextStyle(color: AppColors.primary)),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1167,51 +1248,458 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   Widget _buildEngineEvalSection() {
+    if (!widget.enableExplanation) {
+      return Expanded(
+        flex: 4,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppColors.card,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: AppColors.textMuted.withValues(alpha: 0.1),
+            ),
+          ),
+          child: Center(
+            child: Text(
+              'AI explanation is turned off for this game.',
+              style: AppTextStyles.bodyMedium.copyWith(
+                color: AppColors.textMuted,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final hasExplanation =
+        _engineInfo.containsKey('explanation') &&
+        _engineInfo['explanation'] != null;
+
+    if (!hasExplanation) {
+      // Fallback empty view or older basic view
+      return Expanded(
+        flex: 4,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppColors.card,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: AppColors.textMuted.withValues(alpha: 0.1),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '🤔 AI REASONING',
+                style: AppTextStyles.labelLarge.copyWith(
+                  letterSpacing: 1.5,
+                  fontSize: 12,
+                ),
+              ),
+              const Spacer(),
+              Center(
+                child: Text(
+                  _gameState.isEngineThinking
+                      ? 'Thinking...'
+                      : 'No explanation available.',
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: AppColors.textMuted,
+                  ),
+                ),
+              ),
+              const Spacer(),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final explanation = _engineInfo['explanation'] as Map<String, dynamic>;
+    final scoreCp = explanation['after_eval_cp'] as int? ?? 0;
+    final gamePhase = explanation['game_phase'] as String? ?? 'Middlegame';
+
+    // Formatted evaluation
+    String evalStr;
+    if (scoreCp.abs() >= 90000) {
+      final mateIn = (100000 - scoreCp.abs() + 1) ~/ 2;
+      evalStr = scoreCp > 0 ? '+M$mateIn' : '-M$mateIn';
+    } else {
+      final pawnUnits = scoreCp / 100.0;
+      evalStr = pawnUnits >= 0
+          ? '+${pawnUnits.toStringAsFixed(2)}'
+          : pawnUnits.toStringAsFixed(2);
+    }
+
     return Expanded(
       flex: 4,
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: AppColors.card,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: AppColors.textMuted.withValues(alpha: 0.1)),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'ENGINE EVALUATION',
-              style: AppTextStyles.labelLarge.copyWith(
-                letterSpacing: 1.5,
-                fontSize: 12,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Expanded(
-              child: SingleChildScrollView(
-                child: Column(
-                  children: [
-                    _evalRow('Eval (cp)', _evalCp),
-                    _evalRow('Depth', _engineInfo['depth'] ?? 0),
-                    _evalRow(
-                      'Time (s)',
-                      ((_engineInfo['time_ms'] ?? 0) / 1000).round(),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Header
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  border: Border(
+                    bottom: BorderSide(
+                      color: AppColors.textMuted.withValues(alpha: 0.1),
                     ),
-                    _evalRow('Nodes', _engineInfo['nodes'] ?? 0),
-                    _evalRow('Q-Nodes', _engineInfo['qnodes'] ?? 0),
-                    _evalRow('Cutoffs', _engineInfo['cutoffs'] ?? 0),
-                    _evalRow('TT Hits', _engineInfo['tt_hits'] ?? 0),
-                    _evalRow('TT Probes', _engineInfo['tt_probes'] ?? 0),
-                    _evalRow('Max Ply', _engineInfo['max_ply'] ?? 0),
-                    _evalRow('Max Q-Ply', _engineInfo['max_qply'] ?? 0),
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      '🤔 AI REASONING',
+                      style: AppTextStyles.labelLarge.copyWith(
+                        letterSpacing: 1.5,
+                        fontSize: 12,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    Text(
+                      gamePhase.toUpperCase(),
+                      style: AppTextStyles.labelSmall.copyWith(
+                        color: AppColors.textMuted,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
                   ],
                 ),
+              ),
+
+              // Content Area
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.all(14),
+                  children: [
+                    // Top Eval Score & Depth
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          evalStr,
+                          style: AppTextStyles.displayMedium.copyWith(
+                            color: scoreCp >= 0
+                                ? Colors.greenAccent
+                                : Colors.redAccent,
+                            fontSize: 28,
+                            height: 1.0,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 3),
+                          child: Text(
+                            'Depth ${_engineInfo['depth'] ?? 0}',
+                            style: AppTextStyles.bodySmall.copyWith(
+                              color: AppColors.textMuted,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Bar Chart
+                    Text(
+                      'EVALUATION COMPONENTS',
+                      style: AppTextStyles.labelSmall.copyWith(
+                        color: AppColors.textMuted,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    _buildBreakdownChart(
+                      explanation['full_breakdown_after']
+                              as Map<String, dynamic>? ??
+                          {},
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Narrative
+                    Text(
+                      'WHY THIS MOVE?',
+                      style: AppTextStyles.labelSmall.copyWith(
+                        color: AppColors.textMuted,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    _buildNarrative(
+                      explanation['narrative'] as List<dynamic>? ?? [],
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Alternatives
+                    Text(
+                      'TOP ALTERNATIVES',
+                      style: AppTextStyles.labelSmall.copyWith(
+                        color: AppColors.textMuted,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    _buildAlternatives(
+                      _engineInfo['alternatives'] as List<dynamic>? ?? [],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBreakdownChart(Map<String, dynamic> bk) {
+    if (bk.isEmpty) return const SizedBox();
+
+    // Group the granular keys into major categories
+    int material =
+        (bk['material_mg_white'] ?? 0) +
+        (bk['material_eg_white'] ?? 0) -
+        (bk['material_mg_black'] ?? 0) -
+        (bk['material_eg_black'] ?? 0);
+    int pst =
+        (bk['pst_mg_white'] ?? 0) +
+        (bk['pst_eg_white'] ?? 0) -
+        (bk['pst_mg_black'] ?? 0) -
+        (bk['pst_eg_black'] ?? 0);
+    int structure =
+        (bk['doubled_pawns_mg'] ?? 0) +
+        (bk['doubled_pawns_eg'] ?? 0) +
+        (bk['isolated_pawns_mg'] ?? 0) +
+        (bk['isolated_pawns_eg'] ?? 0) +
+        (bk['passed_pawns_mg'] ?? 0) +
+        (bk['passed_pawns_eg'] ?? 0) +
+        (bk['connected_passers_eg'] ?? 0);
+    int kingSafety =
+        (bk['king_shield_mg'] ?? 0) + (bk['king_prox_passer_eg'] ?? 0);
+    int mobility =
+        (bk['rook_open_file_mg'] ?? 0) +
+        (bk['rook_open_file_eg'] ?? 0) +
+        (bk['rook_semi_open_mg'] ?? 0) +
+        (bk['rook_semi_open_eg'] ?? 0) +
+        (bk['bishop_pair_mg'] ?? 0) +
+        (bk['bishop_pair_eg'] ?? 0);
+    int tactical =
+        (bk['hanging_penalty_mg'] ?? 0) + (bk['hanging_penalty_eg'] ?? 0);
+
+    final isWhiteTurn = _gameState.board.turn == chess.Color.WHITE;
+    if (!isWhiteTurn) {
+      // The breakdown is stored absolute (White positive). If black just moved, negate to show from Black's perspective?
+      // Actually, standard AI panels always show absolute (White positive), so we'll keep it absolute, but colored.
+    }
+
+    Widget bar(String label, int val, Color color) {
+      // scale up slightly so small differences are visible, max 300cp
+      final widthFactor = (val.abs() / 300.0).clamp(0.0, 1.0);
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 70,
+              child: Text(
+                label,
+                style: AppTextStyles.bodySmall.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ),
+            Expanded(
+              child: Stack(
+                alignment: val >= 0
+                    ? Alignment.centerLeft
+                    : Alignment.centerRight,
+                children: [
+                  Container(
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  FractionallySizedBox(
+                    widthFactor: widthFactor.isNaN ? 0 : widthFactor,
+                    child: Container(
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: color,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(
+              width: 45,
+              child: Text(
+                '${val > 0 ? '+' : ''}${(val / 100.0).toStringAsFixed(1)}',
+                style: AppTextStyles.bodySmall.copyWith(
+                  color: val > 0
+                      ? Colors.greenAccent
+                      : (val < 0 ? Colors.redAccent : AppColors.textMuted),
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.right,
               ),
             ),
           ],
         ),
-      ),
+      );
+    }
+
+    return Column(
+      children: [
+        bar(
+          'Material',
+          material,
+          material >= 0 ? Colors.green.shade400 : Colors.red.shade400,
+        ),
+        bar(
+          'Position',
+          pst,
+          pst >= 0 ? Colors.green.shade400 : Colors.red.shade400,
+        ),
+        bar(
+          'Structure',
+          structure,
+          structure >= 0 ? Colors.green.shade300 : Colors.red.shade300,
+        ),
+        bar(
+          'King Safety',
+          kingSafety,
+          kingSafety >= 0 ? Colors.green.shade300 : Colors.red.shade300,
+        ),
+        bar(
+          'Activity',
+          mobility,
+          mobility >= 0 ? Colors.green.shade200 : Colors.red.shade200,
+        ),
+        bar(
+          'Tactics',
+          tactical,
+          tactical >= 0 ? Colors.green.shade200 : Colors.red.shade200,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNarrative(List<dynamic> sentences) {
+    if (sentences.isEmpty) {
+      return Text(
+        "No narrative available.",
+        style: AppTextStyles.bodySmall.copyWith(color: AppColors.textMuted),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: sentences.map((s) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '• ',
+                style: AppTextStyles.bodyMedium.copyWith(
+                  color: AppColors.primary,
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  s.toString(),
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: AppColors.textPrimary,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildAlternatives(List<dynamic> alts) {
+    if (alts.isEmpty) {
+      return Text(
+        "No alternatives found.",
+        style: AppTextStyles.bodySmall.copyWith(color: AppColors.textMuted),
+      );
+    }
+
+    // Get current side to determine +/- formatting correctly actually evaluate returns absolute, so it's fine.
+    return Row(
+      children: alts.map((m) {
+        final uci = m['move_uci'] as String;
+        int cp = (m['eval_cp'] as num).toInt();
+
+        String evalStr;
+        if (cp.abs() >= 90000) {
+          final mateIn = (100000 - cp.abs() + 1) ~/ 2;
+          evalStr = cp > 0 ? '+M$mateIn' : '-M$mateIn';
+        } else {
+          final pawnUnits = cp / 100.0;
+          evalStr = pawnUnits >= 0
+              ? '+${pawnUnits.toStringAsFixed(1)}'
+              : pawnUnits.toStringAsFixed(1);
+        }
+
+        return Expanded(
+          child: Container(
+            margin: const EdgeInsets.only(right: 6),
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+            decoration: BoxDecoration(
+              color: AppColors.surface.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: AppColors.textMuted.withValues(alpha: 0.1),
+              ),
+            ),
+            child: Column(
+              children: [
+                Text(
+                  uci,
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  evalStr,
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: AppColors.textMuted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 

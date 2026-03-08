@@ -5,6 +5,8 @@ class EngineResult {
   final int depth;
   final int nodes;
   final int timeMs;
+  final Map<String, dynamic>? explanation;
+  final List<Map<String, dynamic>>? alternatives;
 
   const EngineResult({
     required this.bestMoveUci,
@@ -12,6 +14,8 @@ class EngineResult {
     required this.depth,
     required this.nodes,
     required this.timeMs,
+    this.explanation,
+    this.alternatives,
   });
 
   bool get hasMove => bestMoveUci != null && bestMoveUci!.isNotEmpty;

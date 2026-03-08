@@ -32,6 +32,7 @@ class MindGambitApp extends StatelessWidget {
                 difficulty: args['difficulty'] as Difficulty,
                 playerIsWhite: args['playerIsWhite'] as bool,
                 timerSeconds: args['timerSeconds'] as int? ?? 0,
+                enableExplanation: args['enableExplanation'] as bool? ?? true,
                 fen: args['fen'] as String?,
               ),
             );

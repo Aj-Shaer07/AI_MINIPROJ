@@ -74,6 +74,8 @@ class ChessEngine {
       depth: result.info['depth'] ?? 0,
       nodes: result.info['nodes'] ?? 0,
       timeMs: result.info['time_ms'] ?? 0,
+      explanation: result.info['explanation'] as Map<String, dynamic>?,
+      alternatives: result.info['alternatives'] as List<Map<String, dynamic>>?,
     );
   }
 }
@@ -118,5 +120,7 @@ EngineResult _computeSearch(_SearchParams params) {
     depth: result.info['depth'] ?? 0,
     nodes: result.info['nodes'] ?? 0,
     timeMs: result.info['time_ms'] ?? 0,
+    explanation: result.info['explanation'] as Map<String, dynamic>?,
+    alternatives: result.info['alternatives'] as List<Map<String, dynamic>>?,
   );
 }

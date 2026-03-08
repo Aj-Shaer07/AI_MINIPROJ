@@ -69,6 +69,13 @@ class AppTextStyles {
     letterSpacing: 1.2,
   );
 
+  static TextStyle get labelSmall => GoogleFonts.inter(
+    fontSize: 10,
+    fontWeight: FontWeight.w700,
+    color: AppColors.primary,
+    letterSpacing: 1.0,
+  );
+
   static TextStyle get button => GoogleFonts.outfit(
     fontSize: 16,
     fontWeight: FontWeight.w700,

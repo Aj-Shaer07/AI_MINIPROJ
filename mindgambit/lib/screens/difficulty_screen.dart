@@ -17,6 +17,7 @@ class _DifficultyScreenState extends State<DifficultyScreen> {
   Difficulty _selected = Difficulty.medium;
   bool _playAsWhite = true;
   TimerOption _timerOption = TimerOption.fiveMin;
+  bool _enableExplanation = true;
 
   @override
   Widget build(BuildContext context) {
@@ -59,6 +60,54 @@ class _DifficultyScreenState extends State<DifficultyScreen> {
                   child: Column(
                     children: [
                       ...Difficulty.values.map((d) => _buildDifficultyCard(d)),
+
+                      const SizedBox(height: 24),
+
+                      // Explanation toggle
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          gradient: AppColors.cardGradient,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: AppColors.primary.withValues(alpha: 0.1),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.lightbulb_outline,
+                              color: AppColors.primary,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'AI Explanation',
+                                    style: AppTextStyles.titleMedium,
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Show short reasoning popup in portrait mode.',
+                                    style: AppTextStyles.bodySmall.copyWith(
+                                      color: AppColors.textMuted,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Switch(
+                              value: _enableExplanation,
+                              onChanged: (value) {
+                                setState(() => _enableExplanation = value);
+                              },
+                              activeColor: AppColors.primary,
+                            ),
+                          ],
+                        ),
+                      ),
 
                       const SizedBox(height: 24),
 
@@ -327,6 +376,7 @@ class _DifficultyScreenState extends State<DifficultyScreen> {
         'difficulty': _selected,
         'playerIsWhite': _playAsWhite,
         'timerSeconds': _timerOption.seconds,
+        'enableExplanation': _enableExplanation,
       },
     );
   }

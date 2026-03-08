@@ -1,5 +1,6 @@
 import 'package:chess/chess.dart' as chess;
 import 'evaluation.dart';
+import 'explainer.dart';
 import 'move_ordering.dart';
 import 'tablebase.dart';
 import 'transposition.dart';
@@ -144,8 +145,9 @@ int quiescence(
   Map<int, List<chess.Move>> killers,
   Map<String, int> history,
   TranspositionTable tt,
-  Stopwatch sw,
-) {
+  Stopwatch sw, [
+  List<Map<String, dynamic>>? rootMoves,
+]) {
   stats.nodes++;
   if (ply > stats.maxPly) stats.maxPly = ply;
 
@@ -321,6 +323,10 @@ int quiescence(
     board.undo_move();
     movesSearched++;
 
+    if (ply == 0 && rootMoves != null) {
+      rootMoves.add({'move': move, 'score': value});
+    }
+
     // Time cutoff after move
     if (sw.elapsedMilliseconds > maxSearchTimeMs) {
       if (value > bestValue) {
@@ -365,7 +371,14 @@ int quiescence(
 // ─────────────────────────────────────────────────────────
 // ITERATIVE DEEPENING WITH TIME LIMIT
 // ─────────────────────────────────────────────────────────
-({chess.Move? move, int value, int depth, SearchStats stats, int elapsedMs})
+({
+  chess.Move? move,
+  int value,
+  int depth,
+  SearchStats stats,
+  int elapsedMs,
+  List<Map<String, dynamic>> alternatives,
+})
 iterativeDeepening(
   chess.Chess board,
   int maxDepth, {
@@ -383,27 +396,24 @@ iterativeDeepening(
   final history = <String, int>{};
   final tt = externalTT ?? TranspositionTable();
 
-  // Endgame depth boost: fewer pieces -> lower branching factor -> search deeper.
-  // Matches Python's iterative_deepening() logic exactly.
-  // The chess package uses a 0x88 board (128-element List); valid squares
-  // satisfy (index & 0x88) == 0 — gives 64 valid slots out of 128.
   int totalPieces = 0;
   for (int i = 0; i < 128; i++) {
     if ((i & 0x88) == 0 && board.board[i] != null) totalPieces++;
   }
   if (totalPieces <= 6) {
-    maxDepth += 3; // K+Q vs K, K+R vs K
+    maxDepth += 3;
   } else if (totalPieces <= 10) {
-    maxDepth += 2; // simple endgames
+    maxDepth += 2;
   } else if (totalPieces <= 16) {
-    maxDepth += 1; // middlegame-to-endgame transition
+    maxDepth += 1;
   }
 
   int prevScore = 0;
   const aspirationWindow = 50;
 
+  List<Map<String, dynamic>> bestRootMoves = [];
+
   for (int depth = 1; depth <= maxDepth; depth++) {
-    // Time check before starting next depth
     if (depth > 1 && sw.elapsedMilliseconds > maxSearchTimeMs) break;
 
     int alpha, beta;
@@ -415,6 +425,7 @@ iterativeDeepening(
       beta = prevScore + aspirationWindow;
     }
 
+    List<Map<String, dynamic>> currentRootMoves = [];
     var result = negamax(
       board,
       depth,
@@ -427,11 +438,12 @@ iterativeDeepening(
       history,
       tt,
       sw,
+      currentRootMoves,
     );
 
-    // Re-search with full window on fail
     if (result.score <= alpha || result.score >= beta) {
       if (sw.elapsedMilliseconds < maxSearchTimeMs) {
+        currentRootMoves.clear();
         result = negamax(
           board,
           depth,
@@ -444,6 +456,7 @@ iterativeDeepening(
           history,
           tt,
           sw,
+          currentRootMoves,
         );
       }
     }
@@ -452,11 +465,11 @@ iterativeDeepening(
       bestMove = result.move;
       bestDepth = depth;
       bestValue = result.score;
+      bestRootMoves = currentRootMoves;
     }
 
     prevScore = result.score;
 
-    // If we're already past time, don't start next depth
     if (sw.elapsedMilliseconds > maxSearchTimeMs) break;
   }
 
@@ -464,12 +477,31 @@ iterativeDeepening(
 
   if (engineIsBlack) bestValue = -bestValue;
 
+  bestRootMoves.sort(
+    (a, b) => (b['score'] as int).compareTo(a['score'] as int),
+  );
+  final alternatives = <Map<String, dynamic>>[];
+  for (int i = 0; i < bestRootMoves.length && i < 3; i++) {
+    final rm = bestRootMoves[i];
+    final m = rm['move'] as chess.Move;
+    int sc = rm['score'] as int;
+    if (engineIsBlack) sc = -sc;
+
+    String moveUci = '${m.fromAlgebraic}${m.toAlgebraic}';
+    if (m.promotion != null) {
+      moveUci += m.promotion!.name.toLowerCase();
+    }
+
+    alternatives.add({'move_uci': moveUci, 'eval_cp': sc});
+  }
+
   return (
     move: bestMove,
     value: bestValue,
     depth: bestDepth,
     stats: stats,
     elapsedMs: sw.elapsedMilliseconds,
+    alternatives: alternatives,
   );
 }
 
@@ -548,7 +580,7 @@ bool _hasNonPawnMaterial(chess.Chess board) {
 // ─────────────────────────────────────────────────────────
 // HIGH-LEVEL SEARCH API
 // ─────────────────────────────────────────────────────────
-({chess.Move? move, Map<String, int> info}) searchWithInfo(
+({chess.Move? move, Map<String, dynamic> info}) searchWithInfo(
   chess.Chess board,
   int maxDepth, {
   bool engineIsBlack = true,
@@ -603,19 +635,33 @@ bool _hasNonPawnMaterial(chess.Chess board) {
     externalTT: tt,
   );
 
-  return (
-    move: result.move,
-    info: {
-      'eval_cp': result.value,
-      'depth': result.depth,
-      'time_ms': result.elapsedMs,
-      'nodes': result.stats.nodes,
-      'qnodes': result.stats.qnodes,
-      'cutoffs': result.stats.cutoffs,
-      'tt_hits': result.stats.ttHits,
-      'tt_probes': result.stats.ttProbes,
-      'max_ply': result.stats.maxPly,
-      'max_qply': result.stats.maxQPly,
-    },
-  );
+  final info = <String, dynamic>{
+    'eval_cp': result.value,
+    'depth': result.depth,
+    'time_ms': result.elapsedMs,
+    'nodes': result.stats.nodes,
+    'qnodes': result.stats.qnodes,
+    'cutoffs': result.stats.cutoffs,
+    'tt_hits': result.stats.ttHits,
+    'tt_probes': result.stats.ttProbes,
+    'max_ply': result.stats.maxPly,
+    'max_qply': result.stats.maxQPly,
+    'alternatives': result.alternatives,
+  };
+
+  // Compute XAI explanation
+  if (result.move != null) {
+    try {
+      final explanation = Explainer.explainMove(
+        board,
+        result.move!,
+        info.map((k, v) => MapEntry(k, v is int ? v : 0)), // typecast
+      );
+      info['explanation'] = explanation;
+    } catch (e) {
+      // Ignore XAI errors so search never fails
+    }
+  }
+
+  return (move: result.move, info: info);
 }

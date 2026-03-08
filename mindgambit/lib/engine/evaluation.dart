@@ -1460,3 +1460,417 @@ int _kbnCornerBonus(
   final proximityBonus = (7 - kingDist) * 10;
   return cornerBonus + proximityBonus;
 }
+
+// ─────────────────────────────────────────────────────────
+// XAI: EVALUATION WITH BREAKDOWN
+// ─────────────────────────────────────────────────────────
+({int score, Map<String, int> breakdown}) evaluateWithBreakdown(
+  chess.Chess board, [
+  int ply = 0,
+]) {
+  final Map<String, int> bk = {
+    'material_mg_white': 0,
+    'material_eg_white': 0,
+    'material_mg_black': 0,
+    'material_eg_black': 0,
+    'pst_mg_white': 0,
+    'pst_eg_white': 0,
+    'pst_mg_black': 0,
+    'pst_eg_black': 0,
+    'doubled_pawns_mg': 0,
+    'doubled_pawns_eg': 0,
+    'isolated_pawns_mg': 0,
+    'isolated_pawns_eg': 0,
+    'passed_pawns_mg': 0,
+    'passed_pawns_eg': 0,
+    'rook_behind_passer_eg': 0,
+    'connected_passers_eg': 0,
+    'king_prox_passer_eg': 0,
+    'bishop_pair_mg': 0,
+    'bishop_pair_eg': 0,
+    'rook_open_file_mg': 0,
+    'rook_open_file_eg': 0,
+    'rook_semi_open_mg': 0,
+    'rook_semi_open_eg': 0,
+    'king_shield_mg': 0,
+    'hanging_penalty_mg': 0,
+    'hanging_penalty_eg': 0,
+    'mop_up_eg': 0,
+    'stalemate_avoidance': 0,
+    'fifty_move_decay': 0,
+    'mate_score': 0,
+    'phase_value': 0,
+    'mg_total': 0,
+    'eg_total': 0,
+  };
+
+  if (board.in_checkmate) {
+    int score = board.turn == chess.Color.WHITE
+        ? -mateScore + ply
+        : mateScore - ply;
+    bk['mate_score'] = score;
+    return (score: score, breakdown: bk);
+  }
+  if (board.in_stalemate || board.insufficient_material) {
+    return (score: 0, breakdown: bk);
+  }
+
+  final snap = _BoardSnapshot(board);
+  int mgScore = 0;
+  int egScore = 0;
+  int phase = 0;
+
+  void _addPstXai(List<int> squares, chess.PieceType pt, int sign) {
+    final mgTable = mgPst[pt]!;
+    final egTable = egPst[pt]!;
+    final mgVal = mgValue[pt]!;
+    final egVal = egValue[pt]!;
+    final pw = phaseWeight[pt]!;
+    final needMirror = sign < 0;
+
+    for (final sq in squares) {
+      final idx = needMirror ? _mirror(sq) : sq;
+      final m = mgVal + mgTable[idx];
+      final e = egVal + egTable[idx];
+
+      mgScore += sign * m;
+      egScore += sign * e;
+      phase += pw;
+
+      if (sign > 0) {
+        bk['material_mg_white'] = bk['material_mg_white']! + mgVal;
+        bk['material_eg_white'] = bk['material_eg_white']! + egVal;
+        bk['pst_mg_white'] = bk['pst_mg_white']! + mgTable[idx];
+        bk['pst_eg_white'] = bk['pst_eg_white']! + egTable[idx];
+      } else {
+        bk['material_mg_black'] = bk['material_mg_black']! - mgVal;
+        bk['material_eg_black'] = bk['material_eg_black']! - egVal;
+        bk['pst_mg_black'] = bk['pst_mg_black']! - mgTable[idx];
+        bk['pst_eg_black'] = bk['pst_eg_black']! - egTable[idx];
+      }
+    }
+  }
+
+  _addPstXai(snap.whitePawns, chess.PieceType.PAWN, 1);
+  _addPstXai(snap.blackPawns, chess.PieceType.PAWN, -1);
+  _addPstXai(snap.whiteKnights, chess.PieceType.KNIGHT, 1);
+  _addPstXai(snap.blackKnights, chess.PieceType.KNIGHT, -1);
+  _addPstXai(snap.whiteBishops, chess.PieceType.BISHOP, 1);
+  _addPstXai(snap.blackBishops, chess.PieceType.BISHOP, -1);
+  _addPstXai(snap.whiteRooks, chess.PieceType.ROOK, 1);
+  _addPstXai(snap.blackRooks, chess.PieceType.ROOK, -1);
+  _addPstXai(snap.whiteQueens, chess.PieceType.QUEEN, 1);
+  _addPstXai(snap.blackQueens, chess.PieceType.QUEEN, -1);
+
+  // Kings
+  {
+    final mgTable = mgPst[chess.PieceType.KING]!;
+    final egTable = egPst[chess.PieceType.KING]!;
+
+    final wkm = mgTable[snap.whiteKing];
+    final wke = egTable[snap.whiteKing];
+    mgScore += wkm;
+    egScore += wke;
+    bk['pst_mg_white'] = bk['pst_mg_white']! + wkm;
+    bk['pst_eg_white'] = bk['pst_eg_white']! + wke;
+
+    final bkm = mgTable[_mirror(snap.blackKing)];
+    final bke = egTable[_mirror(snap.blackKing)];
+    mgScore -= bkm;
+    egScore -= bke;
+    bk['pst_mg_black'] = bk['pst_mg_black']! - bkm;
+    bk['pst_eg_black'] = bk['pst_eg_black']! - bke;
+  }
+
+  // Pawn structure
+  for (int side = 0; side < 2; side++) {
+    final isWhite = side == 0;
+    final sign = isWhite ? 1 : -1;
+    final pawns = snap.pawns(isWhite);
+    final enemyPawns = snap.pawns(!isWhite);
+
+    for (final sq in pawns) {
+      final f = _squareFile(sq);
+      final r = _squareRank(sq);
+
+      // Doubled
+      for (final s in pawns) {
+        if (s != sq && _squareFile(s) == f) {
+          final delta = sign * doubledPawnPenalty;
+          egScore += delta;
+          bk['doubled_pawns_eg'] = bk['doubled_pawns_eg']! + delta;
+          break;
+        }
+      }
+
+      // Isolated
+      bool hasNeighbor = false;
+      for (final s in pawns) {
+        if (s != sq) {
+          final sf = _squareFile(s);
+          if (sf == f - 1 || sf == f + 1) {
+            hasNeighbor = true;
+            break;
+          }
+        }
+      }
+      if (!hasNeighbor) {
+        final delta = sign * isolatedPawnPenalty;
+        mgScore += delta;
+        egScore += delta;
+        bk['isolated_pawns_mg'] = bk['isolated_pawns_mg']! + delta;
+        bk['isolated_pawns_eg'] = bk['isolated_pawns_eg']! + delta;
+      }
+
+      // Passed
+      bool isPassed = true;
+      for (final epSq in enemyPawns) {
+        final epF = _squareFile(epSq);
+        final epR = _squareRank(epSq);
+        if ((epF - f).abs() <= 1) {
+          if (isWhite && epR > r) {
+            isPassed = false;
+            break;
+          }
+          if (!isWhite && epR < r) {
+            isPassed = false;
+            break;
+          }
+        }
+      }
+
+      if (isPassed) {
+        final effectiveRank = isWhite ? r : (7 - r);
+        final mdelta = sign * passedPawnBonusMg[effectiveRank];
+        final edelta = sign * passedPawnBonusEg[effectiveRank];
+        mgScore += mdelta;
+        egScore += edelta;
+        bk['passed_pawns_mg'] = bk['passed_pawns_mg']! + mdelta;
+        bk['passed_pawns_eg'] = bk['passed_pawns_eg']! + edelta;
+
+        // Rook behind passer
+        for (final rsq in snap.rooks(isWhite)) {
+          if (_squareFile(rsq) == f) {
+            final rr = _squareRank(rsq);
+            if ((isWhite && rr < r) || (!isWhite && rr > r)) {
+              final d = sign * rookBehindPasserBonus;
+              egScore += d;
+              bk['rook_behind_passer_eg'] = bk['rook_behind_passer_eg']! + d;
+              break;
+            }
+          }
+        }
+
+        // Connected passed pawns
+        final adjFiles = <int>[];
+        if (f > 0) adjFiles.add(f - 1);
+        if (f < 7) adjFiles.add(f + 1);
+        for (final adjF in adjFiles) {
+          for (final otherSq in pawns) {
+            if (otherSq != sq && _squareFile(otherSq) == adjF) {
+              final otherR = _squareRank(otherSq);
+              bool otherPassed = true;
+              final otherCheck = <int>[adjF];
+              if (adjF > 0) otherCheck.add(adjF - 1);
+              if (adjF < 7) otherCheck.add(adjF + 1);
+
+              for (final ep2 in enemyPawns) {
+                final ep2F = _squareFile(ep2);
+                final ep2R = _squareRank(ep2);
+                if (otherCheck.contains(ep2F)) {
+                  if (isWhite && ep2R > otherR) {
+                    otherPassed = false;
+                    break;
+                  }
+                  if (!isWhite && ep2R < otherR) {
+                    otherPassed = false;
+                    break;
+                  }
+                }
+              }
+              if (otherPassed && otherSq > sq) {
+                final d = sign * connectedPasserBonus;
+                egScore += d;
+                bk['connected_passers_eg'] = bk['connected_passers_eg']! + d;
+              }
+            }
+          }
+        }
+
+        // King proximity (endgame)
+        if (effectiveRank >= 3) {
+          final ownKing = snap.king(isWhite);
+          final oppKing = snap.king(!isWhite);
+          final ownDist = _chebyshevDistance(ownKing, sq);
+          final oppDist = _chebyshevDistance(oppKing, sq);
+          final d = sign * (oppDist * 5 - ownDist * 3);
+          egScore += d;
+          bk['king_prox_passer_eg'] = bk['king_prox_passer_eg']! + d;
+        }
+      }
+    }
+  }
+
+  // Bishop pair
+  if (snap.whiteBishops.length >= 2) {
+    mgScore += bishopPairBonus;
+    egScore += bishopPairBonus;
+    bk['bishop_pair_mg'] = bk['bishop_pair_mg']! + bishopPairBonus;
+    bk['bishop_pair_eg'] = bk['bishop_pair_eg']! + bishopPairBonus;
+  }
+  if (snap.blackBishops.length >= 2) {
+    mgScore -= bishopPairBonus;
+    egScore -= bishopPairBonus;
+    bk['bishop_pair_mg'] = bk['bishop_pair_mg']! - bishopPairBonus;
+    bk['bishop_pair_eg'] = bk['bishop_pair_eg']! - bishopPairBonus;
+  }
+
+  // Rook files
+  for (int side = 0; side < 2; side++) {
+    final isWhite = side == 0;
+    final sign = isWhite ? 1 : -1;
+    for (final sq in snap.rooks(isWhite)) {
+      final f = _squareFile(sq);
+      bool ownPawnOnFile = false;
+      bool enemyPawnOnFile = false;
+      for (final ps in snap.pawns(isWhite)) {
+        if (_squareFile(ps) == f) {
+          ownPawnOnFile = true;
+          break;
+        }
+      }
+      if (!ownPawnOnFile) {
+        for (final ps in snap.pawns(!isWhite)) {
+          if (_squareFile(ps) == f) {
+            enemyPawnOnFile = true;
+            break;
+          }
+        }
+        if (!enemyPawnOnFile) {
+          final d = sign * rookOpenFileBonus;
+          mgScore += d;
+          egScore += d;
+          bk['rook_open_file_mg'] = bk['rook_open_file_mg']! + d;
+          bk['rook_open_file_eg'] = bk['rook_open_file_eg']! + d;
+        } else {
+          final d = sign * rookSemiOpenFileBonus;
+          mgScore += d;
+          egScore += d;
+          bk['rook_semi_open_mg'] = bk['rook_semi_open_mg']! + d;
+          bk['rook_semi_open_eg'] = bk['rook_semi_open_eg']! + d;
+        }
+      }
+    }
+  }
+
+  // King pawn shield
+  if (phase > 6) {
+    for (int side = 0; side < 2; side++) {
+      final isWhite = side == 0;
+      final sign = isWhite ? 1 : -1;
+      final kSq = snap.king(isWhite);
+      final kf = _squareFile(kSq);
+      final kr = _squareRank(kSq);
+      for (final ps in snap.pawns(isWhite)) {
+        final pf = _squareFile(ps);
+        final pr = _squareRank(ps);
+        if ((pf - kf).abs() <= 1) {
+          if (isWhite && (pr == kr + 1 || pr == kr + 2)) {
+            final d = sign * kingShieldBonus;
+            mgScore += d;
+            bk['king_shield_mg'] = bk['king_shield_mg']! + d;
+          }
+          if (!isWhite && (pr == kr - 1 || pr == kr - 2)) {
+            final d = sign * kingShieldBonus;
+            mgScore += d;
+            bk['king_shield_mg'] = bk['king_shield_mg']! + d;
+          }
+        }
+      }
+    }
+  }
+
+  // Hanging pieces
+  for (int side = 0; side < 2; side++) {
+    final isWhite = side == 0;
+    final sign = isWhite ? 1 : -1;
+
+    void _checkHangingXai(List<int> squares, chess.PieceType pt) {
+      final val = pieceValues[pt] ?? 0;
+      for (final sq in squares) {
+        final sqName = _sqNames[sq];
+        final oppColor = isWhite ? chess.Color.BLACK : chess.Color.WHITE;
+        final ownColor = isWhite ? chess.Color.WHITE : chess.Color.BLACK;
+        final isAttacked = _isSquareAttacked(board, sqName, oppColor);
+        final isDefended = _isSquareAttacked(board, sqName, ownColor);
+        if (isAttacked && !isDefended) {
+          final p = (val * hangingPenaltyRatio).toInt();
+          final d = sign * -p;
+          mgScore += d;
+          egScore += d;
+          bk['hanging_penalty_mg'] = bk['hanging_penalty_mg']! + d;
+          bk['hanging_penalty_eg'] = bk['hanging_penalty_eg']! + d;
+        }
+      }
+    }
+
+    _checkHangingXai(snap.knights(isWhite), chess.PieceType.KNIGHT);
+    _checkHangingXai(snap.bishops(isWhite), chess.PieceType.BISHOP);
+    _checkHangingXai(snap.rooks(isWhite), chess.PieceType.ROOK);
+    _checkHangingXai(snap.queens(isWhite), chess.PieceType.QUEEN);
+  }
+
+  bk['mg_total'] = mgScore;
+  bk['eg_total'] = egScore;
+
+  // Tapered eval
+  final cp = phase > totalPhase ? totalPhase : phase;
+  bk['phase_value'] = cp;
+  int score = (mgScore * cp + egScore * (totalPhase - cp)) ~/ totalPhase;
+
+  // Mop-up
+  final matAdv = snap.material(true) - snap.material(false);
+  if (matAdv.abs() >= 200) {
+    int mopDelta = 0;
+    final winWhite = matAdv > 0;
+    final sign = winWhite ? 1 : -1;
+    final lk = snap.king(!winWhite);
+    final wk = snap.king(winWhite);
+    final edge = _kingEdgeDistance(lk) * 15;
+    final prox = (14 - _chebyshevDistance(wk, lk)) * 8;
+    final scale = (matAdv.abs() ~/ 100).clamp(0, 10);
+    mopDelta += sign * ((edge + prox) * scale ~/ 5);
+
+    if (_isKbbVsK(snap, winWhite))
+      mopDelta += sign * _kbbCornerBonus(snap, lk, winWhite);
+    if (_isKbnVsK(snap, winWhite))
+      mopDelta += sign * _kbnCornerBonus(snap, lk, wk, winWhite);
+
+    score += mopDelta;
+    bk['mop_up_eg'] = mopDelta;
+  }
+
+  // Stalemate avoidance
+  if (matAdv.abs() >= 200) {
+    final losingColor = (matAdv > 0) ? chess.Color.BLACK : chess.Color.WHITE;
+    if (board.turn == losingColor) {
+      final numMoves = board.generate_moves().length;
+      if (numMoves <= 2) {
+        final d = -(matAdv > 0 ? 1 : -1) * (60 - numMoves * 25);
+        score += d;
+        bk['stalemate_avoidance'] = d;
+      }
+    }
+  }
+
+  // 50-move rule
+  if (board.half_moves > 30 && score.abs() > 100) {
+    final decayFactor = ((100 - board.half_moves) / 70).clamp(0.0, 1.0);
+    final absScore = score.abs();
+    final newScore = (absScore * decayFactor).toInt() * (score > 0 ? 1 : -1);
+    bk['fifty_move_decay'] = newScore - score;
+    score = newScore;
+  }
+
+  return (score: score, breakdown: bk);
+}
