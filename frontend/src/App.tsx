@@ -8,7 +8,7 @@ function App() {
     <BrowserRouter>
       <header className="app-header">
         <div className="brand">
-          <Link to="/">Chess AI</Link>
+          <Link to="/" state={{ reset: true }}>Chess AI</Link>
         </div>
       </header>
 

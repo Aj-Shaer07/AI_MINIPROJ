@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { TIME_OPTIONS, INCREMENT_OPTIONS, COLOR_OPTIONS, DEFAULT_SETTINGS } from '../values'
 import { getBots, type Bot } from '../utils/api'
@@ -18,6 +18,7 @@ const BOT_META: Record<string, { emoji: string; desc: string; rating: string; de
 
 export default function Landing() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [step, setStep] = useState<Step>(0)
   const [timeControl, setTimeControl] = useState(DEFAULT_SETTINGS.timeControl)
   const [increment, setIncrement] = useState(DEFAULT_SETTINGS.increment)
@@ -26,6 +27,15 @@ export default function Landing() {
   const [showEngineClock, setShowEngineClock] = useState(DEFAULT_SETTINGS.showEngineClock)
   const [bots, setBots] = useState<Bot[]>([])
   const [hoveredBot, setHoveredBot] = useState<string | null>(null)
+
+  // Reset step if brand link clicked (detected via state)
+  useEffect(() => {
+    if ((location.state as any)?.reset) {
+      setStep(0)
+      // Clear state so it doesn't reset again on other navigation
+      window.history.replaceState({}, document.title)
+    }
+  }, [location])
 
   // Tiny preview board
   const previewBoard = [

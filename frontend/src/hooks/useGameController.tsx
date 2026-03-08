@@ -118,8 +118,11 @@ export default function useGameController(opts: UseGameControllerOpts = {}) {
     return () => clearInterval(id)
   }, [gameOverReason])
 
-  // ─── Eval effect (fire on every fen change) ───────────────────────────────
+  // ─── Eval effect (fire on every full move) ───────────────────────────────
   useEffect(() => {
+    // Only update eval after both sides have played (even length)
+    if (moveHistory.length % 2 !== 0) return
+
     const fen = gameRef.current.fen()
     if (fen === new Chess().fen()) return
     const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
