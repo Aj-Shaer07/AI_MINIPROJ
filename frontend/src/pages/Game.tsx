@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import Chessboard from '../components/Chessboard'
 import Panel from '../components/Panel'
 import EvaluationBar from '../components/EvaluationBar'
+import ExplainPopup from '../components/ExplainPopup'
 import useGameController from '../hooks/useGameController'
 import { DEFAULT_SETTINGS, DEFAULT_EVAL_INFO, type EvalInfo } from '../values'
 import '../styles/chess.css'
@@ -18,6 +19,7 @@ export default function Game() {
       playerColor: (searchParams.get('color') as 'white' | 'black') || DEFAULT_SETTINGS.playerColor,
       showPlayerClock: searchParams.has('pclock') ? searchParams.get('pclock') === 'true' : DEFAULT_SETTINGS.showPlayerClock,
       showEngineClock: searchParams.has('eclock') ? searchParams.get('eclock') === 'true' : DEFAULT_SETTINGS.showEngineClock,
+      enableCoachMode: searchParams.has('coach') ? searchParams.get('coach') === 'true' : DEFAULT_SETTINGS.enableCoachMode,
       botId: searchParams.get('bot') || undefined,
     }
   }, [searchParams])
@@ -26,6 +28,7 @@ export default function Game() {
     playerColor: settings.playerColor,
     timeControlMin: parseInt(settings.timeControl) || 5,
     incrementSec: parseInt(settings.increment) || 0,
+    enableCoachMode: settings.enableCoachMode,
     botId: settings.botId,
   })
   const [selected, setSelected] = useState<[number, number] | null>(null)
@@ -192,6 +195,7 @@ export default function Game() {
             </div>
           </aside>
         )}
+        <ExplainPopup explanationData={gc.explanationData} />
       </div>
     </div>
   )

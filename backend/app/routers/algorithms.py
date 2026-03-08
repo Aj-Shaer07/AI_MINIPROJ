@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any, cast
 import chess
-
+from app.utils import explain
 
 def get_router(modules: Dict[str, Any]) -> APIRouter:
     evaluation = modules["evaluation"]
@@ -22,6 +22,7 @@ def get_router(modules: Dict[str, Any]) -> APIRouter:
 
     class EvalRequest(FenRequest):
         ply: Optional[int] = 0
+        is_engine_move: Optional[bool] = False
 
 
     class MovesRequest(FenRequest):
@@ -49,8 +50,39 @@ def get_router(modules: Dict[str, Any]) -> APIRouter:
     @router.post("/evaluate")
     def evaluate_position(req: EvalRequest):
         board = _board_from_request(req)
-        score = evaluation.evaluate(board, ply=req.ply)
-        return {"score_cp": int(score)}
+        
+        # Run a fast shallow search (depth 2) to resolve tactics, captures, AND mate threats
+        _, info_after = search.search_with_info(board, 2, engine_is_black=(board.turn == chess.BLACK))
+        score = info_after.get("eval_cp", 0)
+        
+        explanation = None
+        history_list = req.history or []
+        if history_list:
+            try:
+                board_before = chess.Board(req.fen)
+                for h in history_list[:-1]:
+                    board_before.push_san(h)
+                last_move = board_before.parse_san(history_list[-1])
+                
+                # Evaluate the prev position with the same depth 2 search for an accurate diff
+                _, info_before = search.search_with_info(board_before, 2, engine_is_black=(board_before.turn == chess.BLACK))
+                prev_eval = info_before.get("eval_cp", 0)
+                
+                # Check if it warrants an explanation first without best_move
+                temp_explanation = explain.analyze_move(board_before, last_move, int(prev_eval), int(score), None, req.is_engine_move)
+                
+                if temp_explanation and temp_explanation.get("key") in ["BLUNDER", "GREAT_MOVE"] and not req.is_engine_move:
+                    # Do a very shallow search to find the engine's preferred move for the "Coach"
+                    best, _ = search.search_with_info(board_before, 4, engine_is_black=False) # depth 4 is very fast
+                    best_san = board_before.san(best) if best else None
+                    explanation = explain.analyze_move(board_before, last_move, int(prev_eval), int(score), best_san, req.is_engine_move)
+                else:
+                    explanation = temp_explanation
+                    
+            except Exception:
+                pass
+
+        return {"score_cp": int(score), "explanation": explanation}
 
 
     @router.post("/generate_moves")
@@ -122,6 +154,7 @@ def get_router(modules: Dict[str, Any]) -> APIRouter:
 
         move, info = search.search_with_info(board, depth, engine_is_black=req.engine_is_black)
 
+
         move_uci = move.uci() if move is not None else None
         info_serializable: Dict[str, Any] = {}
         for k, v in info.items():
@@ -132,7 +165,7 @@ def get_router(modules: Dict[str, Any]) -> APIRouter:
                     info_serializable[k] = int(v)
                 except Exception:
                     info_serializable[k] = v
-
+        
         return {"best_move": move_uci, "info": info_serializable}
 
 

@@ -31,11 +31,11 @@ export async function getBots(): Promise<{ bots: Bot[] }> {
   return res.json()
 }
 
-export async function evaluatePosition(fen: string, history: string[] = [], ply = 0) {
+export async function evaluatePosition(fen: string, history: string[] = [], ply = 0, is_engine_move = false) {
   const res = await fetch(`${BACKEND_URL}/evaluate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ fen, history, ply }),
+    body: JSON.stringify({ fen, history, ply, is_engine_move }),
   })
   if (!res.ok) throw new Error(`Evaluate request failed: ${res.status}`)
   return res.json()

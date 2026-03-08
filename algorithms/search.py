@@ -314,8 +314,10 @@ def iterative_deepening(board, max_depth, engine_is_black=True):
 
         if move is not None:
             best_move = move
-            best_depth = depth
-            best_value = value
+            
+        # Always update depth and value so terminal scores (mate/stalemate) are preserved
+        best_depth = depth
+        best_value = value
 
         prev_score = value
 

@@ -6,6 +6,7 @@ export type GameSettings = {
     playerColor: 'white' | 'black'
     showPlayerClock: boolean
     showEngineClock: boolean
+    enableCoachMode: boolean
 }
 
 export const DEFAULT_SETTINGS: GameSettings = {
@@ -14,6 +15,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
     playerColor: 'white',
     showPlayerClock: true,
     showEngineClock: false,
+    enableCoachMode: false,
 }
 
 export type EvalInfo = {
@@ -28,7 +30,10 @@ export type EvalInfo = {
     max_ply: number
     max_q_ply: number
     mate_in?: number
+    explanation?: string
 }
+
+export const EXPLANATION_DURATION_MS = 6000
 
 export const DEFAULT_EVAL_INFO: EvalInfo = {
     eval_cp: 0,

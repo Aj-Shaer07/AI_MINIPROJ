@@ -9,6 +9,7 @@ type UseGameControllerOpts = {
   maxDepth?: number
   timeControlMin?: number
   incrementSec?: number
+  enableCoachMode?: boolean
   botId?: string
 }
 
@@ -32,7 +33,7 @@ const squareToCoords = (sq: string): [number, number] => [8 - parseInt(sq[1]), s
 const coordsToSquare = (r: number, c: number) => `${String.fromCharCode(97 + c)}${8 - r}`
 
 export default function useGameController(opts: UseGameControllerOpts = {}) {
-  const { playerColor = 'white', maxDepth = 3, timeControlMin = 5, incrementSec = 0, botId } = opts
+  const { playerColor = 'white', maxDepth = 3, timeControlMin = 5, incrementSec = 0, enableCoachMode = false, botId } = opts
 
   // The single source of truth chess instance lives in a ref so effects always read
   // the latest game without stale closures.
@@ -56,6 +57,7 @@ export default function useGameController(opts: UseGameControllerOpts = {}) {
   const [gameOverReason, setGameOverReason] = useState<GameOverReason>(null)
   const [whiteTime, setWhiteTime] = useState(timeControlMin * 60 * 1000)
   const [blackTime, setBlackTime] = useState(timeControlMin * 60 * 1000)
+  const [explanationData, setExplanationData] = useState<{ text: string, piece: string } | null>(null)
 
   // Premove stored as a ref so the async engine callback always reads the latest value
   // without needing to be in the effect dependency array.
@@ -79,6 +81,11 @@ export default function useGameController(opts: UseGameControllerOpts = {}) {
     // Append the SAN of the just-played move to the accumulated history
     historyRef.current = [...historyRef.current, moved.san]
     setMoveHistory([...historyRef.current])
+
+    // Clear old explanation when the player starts a new turn
+    if (moved.color === playerColor[0]) {
+      setExplanationData(null)
+    }
 
     // Check / checkmate detection
     if (g.isCheck()) {
@@ -118,16 +125,27 @@ export default function useGameController(opts: UseGameControllerOpts = {}) {
     return () => clearInterval(id)
   }, [gameOverReason])
 
-  // ─── Eval effect (fire on every full move) ───────────────────────────────
+  // ─── Eval effect (fire on every half move) ───────────────────────────────
   useEffect(() => {
-    // Only update eval after both sides have played (even length)
-    if (moveHistory.length % 2 !== 0) return
+    if (moveHistory.length === 0) return
 
     const fen = gameRef.current.fen()
     if (fen === new Chess().fen()) return
+
+    // The player's move corresponds to odd lengths if playing white, even lengths if playing black
+    const isPlayerMove = playerColor === 'white' ? moveHistory.length % 2 !== 0 : moveHistory.length % 2 === 0
+
     const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
-    evaluatePosition(START_FEN, historyRef.current).then(res => setEvalCp(res.score_cp)).catch(() => { })
-  }, [moveHistory.length]) // re-run every time a new half-move is appended
+    evaluatePosition(START_FEN, historyRef.current, 0, !isPlayerMove).then(res => {
+      setEvalCp(res.score_cp)
+      if (enableCoachMode && res.explanation) {
+        // Show explanation if it's the player's move, OR if it's a critical threat (check/mate)
+        if (isPlayerMove || res.explanation.key === 'CHECK' || res.explanation.key === 'MATE') {
+          setExplanationData({ text: res.explanation.text, piece: res.explanation.piece })
+        }
+      }
+    }).catch(() => { })
+  }, [moveHistory.length, enableCoachMode, playerColor]) // re-run every time a new half-move is appended
 
   // ─── Engine turn effect ───────────────────────────────────────────────────
   // We use a flag + abort pattern to prevent stale async calls.
@@ -153,6 +171,7 @@ export default function useGameController(opts: UseGameControllerOpts = {}) {
           gameRef.current = g
           syncDisplayState(g, move)
           setEvalInfo(resp.info)
+          // Engine side explanation is removed entirely.
 
           // Increment for engine side
           if (playerColor === 'white') setBlackTime(t => t + incrementSec * 1000)
@@ -246,6 +265,7 @@ export default function useGameController(opts: UseGameControllerOpts = {}) {
     inCheckCoord,
     premove,
     gameOverReason,
+    explanationData,
     setPossibleMoves,
     getLegalMoves,
     movePiece,

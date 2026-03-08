@@ -25,6 +25,7 @@ export default function Landing() {
   const [playerColor, setPlayerColor] = useState(DEFAULT_SETTINGS.playerColor)
   const [showPlayerClock, setShowPlayerClock] = useState(DEFAULT_SETTINGS.showPlayerClock)
   const [showEngineClock, setShowEngineClock] = useState(DEFAULT_SETTINGS.showEngineClock)
+  const [enableCoachMode, setEnableCoachMode] = useState(DEFAULT_SETTINGS.enableCoachMode)
   const [bots, setBots] = useState<Bot[]>([])
   const [hoveredBot, setHoveredBot] = useState<string | null>(null)
 
@@ -69,7 +70,7 @@ export default function Landing() {
   }, [step])
 
   const handleSelectBot = (botId: string) => {
-    navigate(`/game?time=${timeControl}&inc=${increment}&color=${playerColor}&pclock=${showPlayerClock}&eclock=${showEngineClock}&bot=${botId}`)
+    navigate(`/game?time=${timeControl}&inc=${increment}&color=${playerColor}&pclock=${showPlayerClock}&eclock=${showEngineClock}&coach=${enableCoachMode}&bot=${botId}`)
   }
 
   // ─── Hero Screen ──────────────────────────────────────────────────────────
@@ -191,6 +192,15 @@ export default function Landing() {
                 />
                 <span className="checkbox-custom"></span>
                 Engine Clock
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={enableCoachMode}
+                  onChange={(e) => setEnableCoachMode(e.target.checked)}
+                />
+                <span className="checkbox-custom"></span>
+                Coach Mode (Explainable AI)
               </label>
             </div>
           </div>
