@@ -83,10 +83,9 @@ export default function useGameController(opts: UseGameControllerOpts = {}) {
     historyRef.current = [...historyRef.current, moved.san]
     setMoveHistory([...historyRef.current])
 
-    // Clear old explanation when the player starts a new turn
-    if (moved.color === playerColor[0]) {
-      setExplanationData(null)
-    }
+    // Always clear the old explanation on every move so the ExplainPopup
+    // useEffect always sees null → new value, which guarantees it re-triggers.
+    setExplanationData(null)
 
     // Check / checkmate detection
     if (g.isCheck()) {
@@ -140,10 +139,8 @@ export default function useGameController(opts: UseGameControllerOpts = {}) {
     evaluatePosition(START_FEN, historyRef.current, 0, !isPlayerMove).then(res => {
       setEvalCp(res.score_cp)
       if (enableCoachMode && res.explanation) {
-        // Show explanation if it's the player's move, OR if it's a critical threat (check/mate)
-        if (isPlayerMove || res.explanation.key === 'CHECK' || res.explanation.key === 'MATE') {
-          setExplanationData({ text: res.explanation.text, piece: res.explanation.piece })
-        }
+        // Always show explanations for player moves and engine moves equally
+        setExplanationData({ text: res.explanation.text, piece: res.explanation.piece })
       }
     }).catch(() => { })
   }, [moveHistory.length, enableCoachMode, playerColor]) // re-run every time a new half-move is appended

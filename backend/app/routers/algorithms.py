@@ -68,16 +68,19 @@ def get_router(modules: Dict[str, Any]) -> APIRouter:
                 _, info_before = search.search_with_info(board_before, 2, engine_is_black=(board_before.turn == chess.BLACK))
                 prev_eval = info_before.get("eval_cp", 0)
                 
-                # Check if it warrants an explanation first without best_move
-                temp_explanation = explain.analyze_move(board_before, last_move, int(prev_eval), int(score), None, req.is_engine_move)
-                
-                if temp_explanation and temp_explanation.get("key") in ["BLUNDER", "GREAT_MOVE"] and not req.is_engine_move:
-                    # Do a very shallow search to find the engine's preferred move for the "Coach"
-                    best, _ = search.search_with_info(board_before, 4, engine_is_black=False) # depth 4 is very fast
-                    best_san = board_before.san(best) if best else None
-                    explanation = explain.analyze_move(board_before, last_move, int(prev_eval), int(score), best_san, req.is_engine_move)
+                if req.is_engine_move:
+                    # Engine move: use dedicated analyzer that explains threats, forks, etc.
+                    explanation = explain.analyze_engine_move(board_before, last_move, int(prev_eval), int(score))
                 else:
-                    explanation = temp_explanation
+                    # Player move: use existing rule-based analyzer
+                    temp_explanation = explain.analyze_move(board_before, last_move, int(prev_eval), int(score), None, False)
+                    if temp_explanation and temp_explanation.get("key") in ["BLUNDER", "GREAT_MOVE"]:
+                        # Do a very shallow search to find the engine's preferred move for the "Coach"
+                        best, _ = search.search_with_info(board_before, 4, engine_is_black=False)
+                        best_san = board_before.san(best) if best else None
+                        explanation = explain.analyze_move(board_before, last_move, int(prev_eval), int(score), best_san, False)
+                    else:
+                        explanation = temp_explanation
                     
             except Exception:
                 pass
