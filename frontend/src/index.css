@@ -218,3 +218,325 @@ button {
     transform: translateY(40px);
   }
 }
+
+/* ─── Post-Game Analysis ──────────────────────────────────────────── */
+
+.analysis-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 48px);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+
+.analysis-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 24px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--bg-elevated);
+  flex-shrink: 0;
+}
+
+.analysis-title {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0;
+  flex: 1;
+  text-align: center;
+}
+
+.analysis-meta {
+  font-size: 13px;
+  color: var(--text-muted);
+  min-width: 100px;
+  text-align: right;
+}
+
+/* 3-panel layout */
+.analysis-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr 220px;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.analysis-left,
+.analysis-right {
+  background: var(--bg-secondary);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.analysis-left {
+  border-right: 1px solid var(--bg-elevated);
+}
+
+.analysis-right {
+  border-left: 1px solid var(--bg-elevated);
+  overflow-y: auto;
+}
+
+.analysis-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 16px;
+  gap: 12px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.analysis-panel-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+/* Board wrapper — override square-size so the board fills the center column */
+.analysis-board-wrap {
+  position: relative;
+  /* Scale the board to fit: each square = 1/8 of the available center-column height */
+  --square-size: min(
+    calc((100vh - 180px) / 8),
+    calc((100vw - 560px) / 8)
+  );
+  width: calc(var(--square-size) * 8);
+  height: calc(var(--square-size) * 8);
+  flex-shrink: 0;
+}
+
+.best-move-arrow-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 10;
+  animation: fadeIn 0.2s ease;
+}
+
+/* Navigation controls */
+.analysis-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-secondary);
+  border-radius: 10px;
+  padding: 8px 16px;
+  border: 1px solid var(--bg-elevated);
+}
+
+.ctrl-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background 0.15s, color 0.15s;
+  line-height: 1;
+}
+
+.ctrl-btn:hover:not(:disabled) {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.ctrl-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.ctrl-ply {
+  font-size: 13px;
+  color: var(--text-muted);
+  min-width: 140px;
+  text-align: center;
+}
+
+/* Eval graph */
+.eval-graph-wrap {
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  padding: 8px;
+  overflow: hidden;
+}
+
+/* Annotation badge under graph */
+.analysis-annotation-badge {
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+}
+
+.analysis-best-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 400;
+  margin-top: 4px;
+}
+
+/* Annotation legend */
+.annotation-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--bg-elevated);
+}
+
+.legend-item {
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Annotated move list */
+.annotated-move-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bg-elevated) transparent;
+}
+
+.move-pair-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+}
+
+.move-number {
+  font-size: 11px;
+  color: var(--text-dim);
+  width: 24px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.analysis-move-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s;
+  font-family: inherit;
+}
+
+.analysis-move-btn:hover {
+  background: var(--bg-tertiary);
+}
+
+.analysis-move-btn.active {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.move-placeholder {
+  flex: 1;
+}
+
+/* Loading / error states */
+.analysis-loading,
+.analysis-error,
+.analysis-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 16px;
+  color: var(--text-muted);
+}
+
+.analysis-spinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid var(--bg-elevated);
+  border-top-color: var(--accent-green);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Generic button helpers */
+.btn {
+  padding: 8px 18px;
+  border-radius: 8px;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.btn:hover { opacity: 0.85; }
+
+.btn-primary {
+  background: var(--accent-green);
+  color: #fff;
+}
+
+.btn-outline {
+  background: transparent;
+  border: 1px solid var(--bg-elevated);
+  color: var(--text-secondary);
+}
+
+/* Post-Game Analysis button in game-over card */
+.analysis-btn {
+  padding: 12px 28px;
+  background: transparent;
+  border: 1px solid var(--accent-green);
+  color: var(--accent-green);
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  font-family: inherit;
+}
+
+.analysis-btn:hover {
+  background: var(--accent-green);
+  color: #fff;
+}
+
+.game-over-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}

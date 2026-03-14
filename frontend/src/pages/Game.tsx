@@ -110,6 +110,16 @@ export default function Game() {
             </p>
             <div className="game-over-actions">
               <button className="restart-btn" onClick={() => navigate('/')}>New Game</button>
+              {gc.moveHistory.length > 0 && (
+                <button
+                  className="analysis-btn"
+                  onClick={() => navigate('/analysis', {
+                    state: { history: gc.moveHistory, playerColor: settings.playerColor }
+                  })}
+                >
+                  Post-Game Analysis
+                </button>
+              )}
             </div>
           </div>
         </div>

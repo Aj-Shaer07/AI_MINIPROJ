@@ -88,6 +88,88 @@ def get_router(modules: Dict[str, Any]) -> APIRouter:
         return {"score_cp": int(score), "explanation": explanation}
 
 
+    class AnalyzeGameRequest(BaseModel):
+        history: List[str]
+        player_is_white: Optional[bool] = True
+
+    @router.post("/analyze_game")
+    def analyze_game(req: AnalyzeGameRequest):
+        """
+        Batch-analyze every move in a completed game.
+        Returns a per-ply list with eval, annotation, and best_move_san.
+        """
+        history = req.history
+        results = []
+        board = chess.Board()  # start from the initial position
+
+        # Evaluate position before any move (ply 0 baseline)
+        _, info0 = search.search_with_info(board, 2, engine_is_black=not req.player_is_white)
+        prev_eval = int(info0.get("eval_cp", 0))
+
+        for idx, san in enumerate(history):
+            try:
+                board_before = board.copy()
+                move = board.push_san(san)
+                board_after = board.copy()
+
+                is_white_move = board_before.turn == chess.WHITE
+                is_player_move = is_white_move if req.player_is_white else not is_white_move
+
+                # Current eval after the move
+                _, info_after = search.search_with_info(board_after, 2, engine_is_black=(board_after.turn == chess.BLACK))
+                curr_eval = int(info_after.get("eval_cp", 0))
+
+                # Best move from board_before according to engine
+                best_move_obj, _ = search.search_with_info(board_before, 3, engine_is_black=(board_before.turn == chess.BLACK))
+                best_move_san = board_before.san(best_move_obj) if best_move_obj else None
+                best_move_uci = best_move_obj.uci() if best_move_obj else None
+
+                # Eval diff from the perspective of whoever just moved
+                if is_white_move:
+                    eval_diff = curr_eval - prev_eval
+                else:
+                    eval_diff = prev_eval - curr_eval
+
+                # Annotation thresholds (only meaningful for player moves)
+                if is_player_move:
+                    if eval_diff > 200:
+                        annotation, symbol, color = "BRILLIANT", "!!", "#f0c040"
+                    elif eval_diff > 50:
+                        annotation, symbol, color = "GOOD", "!", "#54c481"
+                    elif eval_diff >= -50:
+                        annotation, symbol, color = "NEUTRAL", "", "#888888"
+                    elif eval_diff >= -150:
+                        annotation, symbol, color = "INACCURACY", "?!", "#e6bc97"
+                    elif eval_diff >= -300:
+                        annotation, symbol, color = "MISTAKE", "?", "#e07030"
+                    else:
+                        annotation, symbol, color = "BLUNDER", "??", "#b43232"
+                else:
+                    annotation, symbol, color = "ENGINE", "", "#888888"
+
+                results.append({
+                    "ply": idx + 1,
+                    "move": san,
+                    "move_uci": move.uci(),
+                    "eval_cp": curr_eval,
+                    "eval_diff": eval_diff,
+                    "annotation": annotation,
+                    "annotation_symbol": symbol,
+                    "annotation_color": color,
+                    "best_move_san": best_move_san,
+                    "best_move_uci": best_move_uci,
+                    "is_player_move": is_player_move,
+                })
+
+                prev_eval = curr_eval
+
+            except Exception:
+                # Skip invalid moves silently
+                pass
+
+        return {"analysis": results}
+
+
     @router.post("/generate_moves")
     def generate_moves(req: FenRequest):
         board = _board_from_request(req)

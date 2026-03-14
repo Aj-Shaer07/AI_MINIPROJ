@@ -50,3 +50,27 @@ export async function generateMoves(fen: string, history: string[] = []) {
   if (!res.ok) throw new Error(`Generate moves failed: ${res.status}`)
   return res.json()
 }
+
+export interface AnalysisPly {
+  ply: number
+  move: string
+  move_uci: string
+  eval_cp: number
+  eval_diff: number
+  annotation: string
+  annotation_symbol: string
+  annotation_color: string
+  best_move_san: string | null
+  best_move_uci: string | null
+  is_player_move: boolean
+}
+
+export async function analyzeGame(history: string[], playerIsWhite = true): Promise<{ analysis: AnalysisPly[] }> {
+  const res = await fetch(`${BACKEND_URL}/analyze_game`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ history, player_is_white: playerIsWhite }),
+  })
+  if (!res.ok) throw new Error(`Analyze game failed: ${res.status}`)
+  return res.json()
+}
