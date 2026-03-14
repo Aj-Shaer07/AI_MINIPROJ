@@ -465,6 +465,19 @@ button {
   flex: 1;
 }
 
+/* Move Explanation Box */
+.analysis-explanation-box {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+}
+
 /* Loading / error states */
 .analysis-loading,
 .analysis-error,

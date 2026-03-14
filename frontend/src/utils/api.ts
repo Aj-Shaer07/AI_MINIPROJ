@@ -57,12 +57,13 @@ export interface AnalysisPly {
   move_uci: string
   eval_cp: number
   eval_diff: number
-  annotation: string
+  annotation: 'BRILLIANT' | 'GOOD' | 'NEUTRAL' | 'INACCURACY' | 'MISTAKE' | 'BLUNDER' | 'ENGINE'
   annotation_symbol: string
   annotation_color: string
   best_move_san: string | null
   best_move_uci: string | null
   is_player_move: boolean
+  explanation_text: string | null
 }
 
 export async function analyzeGame(history: string[], playerIsWhite = true): Promise<{ analysis: AnalysisPly[] }> {

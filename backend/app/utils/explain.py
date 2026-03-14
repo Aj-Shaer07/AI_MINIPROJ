@@ -48,12 +48,9 @@ def analyze_move(board_before: chess.Board, move: chess.Move, prev_eval_cp: int,
         
         # Did they hang a piece or make a bad capture?
         if board_before.is_capture(move):
-            text = "Oops, that capture seems to drop material."
+            text = "Oops, that capture drops material."
         else:
             text = "Oops, that move drops your advantage."
-            
-        if best_move_san:
-            text += f" A much stronger continuation was {best_move_san}."
             
         return {"key": "BLUNDER", "text": text, "piece": blunder_piece}
 

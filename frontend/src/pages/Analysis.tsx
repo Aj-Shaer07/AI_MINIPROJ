@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { Chess } from 'chess.js'
 import { analyzeGame } from '../utils/api'
 import type { AnalysisPly } from '../utils/api'
@@ -54,7 +54,13 @@ function uciToCoords(uci: string): [number, number, number, number] | null {
 export default function Analysis() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { history = [], playerColor = 'white' } = (location.state as any) || {}
+  const [searchParams] = useSearchParams()
+
+  const state = (location.state as any) || {}
+  const history = state.history || []
+  
+  // Try to get playerColor from searchParams first, then fall back to location.state, then 'white'
+  const playerColor = searchParams.get('color') || state.playerColor || 'white'
   const playerIsWhite = playerColor === 'white'
   const totalPlies = history.length
 
@@ -151,6 +157,11 @@ export default function Analysis() {
                 )}
               </div>
             )}
+            {currentPly > 0 && currentPlyData?.explanation_text && (
+              <div className="analysis-explanation-box">
+                {currentPlyData.explanation_text}
+              </div>
+            )}
           </aside>
 
           {/* Center: Board + Controls */}
@@ -167,30 +178,33 @@ export default function Analysis() {
                 onRightClick={() => {}}
               />
               {/* Best-move arrow SVG overlay */}
-              {bestArrow && (
-                <svg
-                  className="best-move-arrow-svg"
-                  viewBox="0 0 8 8"
-                  preserveAspectRatio="none"
-                >
-                  <defs>
-                    <marker id="arrowhead" markerWidth="3" markerHeight="3" refX="1.5" refY="1.5" orient="auto">
-                      <polygon points="0 0, 3 1.5, 0 3" fill="#f0c040" />
-                    </marker>
-                  </defs>
-                  <line
-                    x1={bestArrow[1] + 0.5}
-                    y1={bestArrow[0] + 0.5}
-                    x2={bestArrow[3] + 0.5}
-                    y2={bestArrow[2] + 0.5}
-                    stroke="#f0c040"
-                    strokeWidth="0.15"
-                    strokeLinecap="round"
-                    strokeOpacity="0.85"
-                    markerEnd="url(#arrowhead)"
-                  />
-                </svg>
-              )}
+              {bestArrow && (() => {
+                const flip = (c: number) => playerColor === 'black' ? 7 - c : c;
+                return (
+                  <svg
+                    className="best-move-arrow-svg"
+                    viewBox="0 0 8 8"
+                    preserveAspectRatio="none"
+                  >
+                    <defs>
+                      <marker id="arrowhead" markerWidth="3" markerHeight="3" refX="1.5" refY="1.5" orient="auto">
+                        <polygon points="0 0, 3 1.5, 0 3" fill="#f0c040" />
+                      </marker>
+                    </defs>
+                    <line
+                      x1={flip(bestArrow[1]) + 0.5}
+                      y1={flip(bestArrow[0]) + 0.5}
+                      x2={flip(bestArrow[3]) + 0.5}
+                      y2={flip(bestArrow[2]) + 0.5}
+                      stroke="#f0c040"
+                      strokeWidth="0.15"
+                      strokeLinecap="round"
+                      strokeOpacity="0.85"
+                      markerEnd="url(#arrowhead)"
+                    />
+                  </svg>
+                );
+              })()}
             </div>
 
             {/* Navigation controls */}

@@ -147,6 +147,73 @@ def get_router(modules: Dict[str, Any]) -> APIRouter:
                 else:
                     annotation, symbol, color = "ENGINE", "", "#888888"
 
+                # Generate Explanation Text
+                explanation_text = None
+                if is_player_move:
+                    # 1. Try passing it to the explain.py rules
+                    from app.utils.explain import analyze_move as explain_move
+                    exp_dict = explain_move(board_before, move, prev_eval, curr_eval, best_move_san, False)
+                    if exp_dict and "text" in exp_dict:
+                        explanation_text = exp_dict["text"]
+                    
+                    # 2. Append/generate dynamic context for mistakes/blunders
+                    if annotation in ["BLUNDER", "MISTAKE", "INACCURACY"]:
+                        if best_move_san and best_move_obj:
+                            reason = "improves your position"
+                            
+                            # Analyze why the best move was better
+                            if board_before.is_capture(best_move_obj):
+                                reason = "wins material or improves a trade"
+                            elif board_before.gives_check(best_move_obj):
+                                reason = "forces the opponent's hand with a check"
+                            else:
+                                # Center control checks
+                                moved_piece = board_before.piece_at(best_move_obj.from_square)
+                                to_sq = best_move_obj.to_square
+                                center_squares = [chess.E4, chess.D4, chess.E5, chess.D5]
+                                if to_sq in center_squares:
+                                    reason = "fights for central control"
+                                elif moved_piece and moved_piece.piece_type in [chess.KNIGHT, chess.BISHOP] and board_before.ply() < 20:
+                                    reason = "develops a minor piece to a more active square"
+                                else:
+                                    # Check if it creates a threat
+                                    reason = "finds a more active square or creates a threat"
+
+                            dynamic_reason = f"A stronger continuation was {best_move_san}, which {reason}."
+                            if explanation_text:
+                                explanation_text += " " + dynamic_reason
+                            else:
+                                explanation_text = f"This move was imprecise and drops evaluation. " + dynamic_reason
+                        elif not explanation_text:
+                            explanation_text = "This move was an inaccuracy."
+                            
+                    # 3. Fallback for great/brilliant moves
+                    elif not explanation_text and annotation in ["BRILLIANT", "GOOD"]:
+                        explanation_text = "Solid finding. This maintains or improves your advantage."
+                else:
+                    # Engine Move Explanations
+                    if board_after.is_checkmate():
+                        explanation_text = "The engine delivers checkmate."
+                    elif board_after.is_check():
+                        explanation_text = "The engine is checking your King."
+                    elif board_before.is_capture(move):
+                        captured = board_before.piece_at(move.to_square)
+                        cname = chess.piece_name(captured.piece_type).capitalize() if captured else "Piece"
+                        explanation_text = f"The engine captures your {cname}."
+                    else:
+                        # Mention piece being developed early on
+                        moved_p = board_before.piece_at(move.from_square)
+                        if board_before.ply() < 20 and moved_p and moved_p.piece_type in [chess.KNIGHT, chess.BISHOP]:
+                            explanation_text = "The engine is developing its minor pieces."
+                        else:
+                            # Positional
+                            if curr_eval > 200:
+                                explanation_text = "The engine consolidates its winning advantage."
+                            elif curr_eval < -200:
+                                explanation_text = "The engine is defending a tough position."
+                            else:
+                                explanation_text = "The engine makes a positional maneuver."
+
                 results.append({
                     "ply": idx + 1,
                     "move": san,
@@ -159,6 +226,7 @@ def get_router(modules: Dict[str, Any]) -> APIRouter:
                     "best_move_san": best_move_san,
                     "best_move_uci": best_move_uci,
                     "is_player_move": is_player_move,
+                    "explanation_text": explanation_text,
                 })
 
                 prev_eval = curr_eval

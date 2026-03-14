@@ -113,7 +113,7 @@ export default function Game() {
               {gc.moveHistory.length > 0 && (
                 <button
                   className="analysis-btn"
-                  onClick={() => navigate('/analysis', {
+                  onClick={() => navigate(`/analysis?color=${settings.playerColor}`, {
                     state: { history: gc.moveHistory, playerColor: settings.playerColor }
                   })}
                 >
