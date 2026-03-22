@@ -106,7 +106,19 @@ def negamax(board, depth, alpha, beta, ply, check_ext_used, stats,
         stats.max_ply = ply
 
     # ── Repetition draw ──
-    if board.is_repetition(2):
+    # Don't return early at the root (ply == 0) to ensure we always return a move.
+    if ply > 0 and board.is_repetition(2):
+        # In positions with a big material advantage, penalise repetition
+        # instead of treating it as a draw (0). Without this, the engine
+        # may endlessly repeat moves in KBN/KBB endgames.
+        from algorithms.evaluation import _count_material, PIECE_VALUES
+        w_mat = _count_material(board, True)   # chess.WHITE = True
+        b_mat = _count_material(board, False)  # chess.BLACK = False
+        mat_diff = w_mat - b_mat
+        if abs(mat_diff) >= 200:
+            # Side with advantage gets a penalty for repeating
+            # (from this side's negamax perspective)
+            return -500, None
         return 0, None
 
     # ── TT probe ──
@@ -266,7 +278,13 @@ def iterative_deepening(board, max_depth, engine_is_black=True):
     # Endgame depth boost: when few pieces remain, search deeper
     # because the branching factor is much lower
     total_pieces = len(board.piece_map())
-    if total_pieces <= 6:
+    if total_pieces <= 4:
+        # K+B+N vs K or K+B+B vs K: Branching factor is tiny, but mates are long.
+        # Extended search allows the engine to see over heuristic 'valleys' (like the W-maneuver).
+        max_depth = max(max_depth, max_depth + 6)
+    elif total_pieces <= 5:
+        max_depth = max(max_depth, max_depth + 4)
+    elif total_pieces <= 6:
         max_depth = max(max_depth, max_depth + 3)  # K+Q vs K, K+R vs K
     elif total_pieces <= 10:
         max_depth = max(max_depth, max_depth + 2)  # simple endgames
@@ -334,26 +352,28 @@ def iterative_deepening(board, max_depth, engine_is_black=True):
 # UI HELPER (FOR GUI / TERMINAL)
 # -------------------------------------------------
 def search_with_info(board, max_depth, engine_is_black=True):
-    # ── Opening book: forced replies ──
-    # Play ...e5 against 1.e4 and ...d5 against 1.d4
-    if board.fullmove_number == 1 and board.turn == chess.BLACK:
-        last_move = board.peek() if board.move_stack else None
-        if last_move:
-            forced = None
-            if last_move == chess.Move.from_uci("e2e4"):
-                forced = chess.Move.from_uci("e7e5")
-            elif last_move == chess.Move.from_uci("d2d4"):
-                forced = chess.Move.from_uci("d7d5")
-            if forced and forced in board.legal_moves:
+    # ── Opening book lookup ──
+    # Use the Polyglot opening book for the first part of the game.
+    # Weighted-random selection gives varied, natural play.
+    try:
+        from algorithms.openingbook import book_move, is_book_loaded
+        if is_book_loaded():
+            ob_move = book_move(board, weighted_random=True)
+            if ob_move is not None:
+                san = board.san(ob_move)
+                print(f"[Book] Playing: {san}")
                 info = {
-                    "move": forced, "eval_cp": 0, "depth": 0,
+                    "move": ob_move, "eval_cp": 0, "depth": 0,
                     "time_ms": 0, "nodes": 0, "qnodes": 0,
                     "cutoffs": 0, "tt_hits": 0, "tt_probes": 0,
                     "max_ply": 0, "max_qply": 0,
+                    "source": "book",
                 }
-                return forced, info
+                return ob_move, info
+    except Exception as e:
+        print(f"[Book] Error: {e}")
 
-    # Check Syzygy tablebase at root for positions with <= 4 pieces
+    # Check Syzygy tablebase at root for positions with <= 5 pieces
     try:
         from algorithms import tablebase
     except Exception:
@@ -365,9 +385,18 @@ def search_with_info(board, max_depth, engine_is_black=True):
         except Exception:
             tb_move = None
         if tb_move is not None:
+            # Derive eval from WDL: win=+10000, draw=0, loss=-10000
+            try:
+                wdl = tablebase.probe_wdl(board)
+                if wdl is not None:
+                    tb_eval = wdl * 10000  # ±10000 for win/loss, 0 for draw
+                else:
+                    tb_eval = 0
+            except Exception:
+                tb_eval = 0
             info = {
                 "move": tb_move,
-                "eval_cp": 0,
+                "eval_cp": tb_eval,
                 "depth": 0,
                 "time_ms": 0,
 
@@ -380,6 +409,8 @@ def search_with_info(board, max_depth, engine_is_black=True):
 
                 "max_ply": 0,
                 "max_qply": 0,
+
+                "source": "syzygy",
             }
             return tb_move, info
 

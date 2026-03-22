@@ -307,7 +307,8 @@ def main(start_time=None, increment=None, human_color=None, fen=None):
 	drag_start_pos = (0, 0)
 	mouse_pos = (0, 0)
 	selected_square = None
-	engine_pending = False
+	# If the engine is the side to move at game start, trigger it immediately
+	engine_pending = (controller.board.turn != human_color_bool)
 	drag_threshold = 6
 	hover_resign = False
 	promotion_pending = None  # (from_r, from_c, to_r, to_c) when awaiting promotion choice

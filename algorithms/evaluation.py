@@ -473,9 +473,15 @@ def evaluate(board, ply=0):
                 score -= sign * (60 - num_moves * 25)
 
     # 50-move rule awareness: as we approach 50 moves without progress,
-    # reduce the winning side's score to encourage decisive play
+    # reduce the winning side's score to encourage decisive play.
+    # EXCEPTION: KBN and KBB endgames can take 30+ moves to mate;
+    # decaying the score kills the evaluation gradient prematurely.
     halfmove_clock = board.halfmove_clock
-    if halfmove_clock > 30 and abs(score) > 100:
+    is_kbn_or_kbb = False
+    if abs(mat_advantage) >= 200:
+        wc = chess.WHITE if mat_advantage > 0 else chess.BLACK
+        is_kbn_or_kbb = _is_kbn_vs_k(board, wc) or _is_kbb_vs_k(board, wc)
+    if halfmove_clock > 30 and abs(score) > 100 and not is_kbn_or_kbb:
         # Reduce score proportionally as we approach the 50-move limit
         decay_factor = max(0, 100 - halfmove_clock) / 70
         abs_score = abs(score)
@@ -532,33 +538,40 @@ def _is_kbb_vs_k(board, winning_color):
 
 
 def _kbb_corner_bonus(board, losing_king_sq, winning_color):
-    """In K+B+B vs K, drive the losing king to a corner matching the
-    bishop colors. Two same-colored bishops can't mate, but two
-    opposite-colored bishops should drive the king to either corner."""
+    """In K+B+B vs K, drive the losing king to any corner.
+    Two opposite-colored bishops can mate in any corner.
+    Provides a strong gradient: push to edge -> push to corner -> bring king close."""
     bishops = list(board.pieces(chess.BISHOP, winning_color))
     if len(bishops) != 2:
         return 0
 
-    # Check if bishops are on opposite colors
+    # Ensure bishops are on opposite colors (can't mate otherwise)
     b1_color = (chess.square_file(bishops[0]) + chess.square_rank(bishops[0])) % 2
     b2_color = (chess.square_file(bishops[1]) + chess.square_rank(bishops[1])) % 2
-
     if b1_color == b2_color:
-        return 0  # same colored bishops, can't mate (shouldn't happen in normal K+B+B)
+        return 0 
 
-    # Drive king to any corner
     losing_file = chess.square_file(losing_king_sq)
     losing_rank = chess.square_rank(losing_king_sq)
 
-    # Distance to nearest corner
+    # 1. Edge Push: Force the losing king to the edge of the board
+    edge_dist = _king_edge_distance(losing_king_sq)
+    edge_bonus = edge_dist * 50
+
+    # 2. Corner Push: Once on the edge, force towards any corner
     corners = [(0, 0), (0, 7), (7, 0), (7, 7)]
     min_corner_dist = min(
-        max(abs(losing_file - cf), abs(losing_rank - cr))
+        max(abs(losing_file - cf), abs(losing_rank - cr)) # Chebyshev
         for cf, cr in corners
     )
+    corner_bonus = (7 - min_corner_dist) * 60
 
-    # Bonus for being close to a corner (max 7, min 0)
-    return (7 - min_corner_dist) * 20
+    # 3. King Proximity: Our king must stay close to cut off escape squares
+    winning_king_sq = board.king(winning_color)
+    king_dist = _chebyshev_distance(winning_king_sq, losing_king_sq)
+    proximity_bonus = (14 - king_dist) * 30
+
+    return edge_bonus + corner_bonus + proximity_bonus
 
 
 def _is_kbn_vs_k(board, winning_color):
@@ -582,39 +595,99 @@ def _is_kbn_vs_k(board, winning_color):
 def _kbn_corner_bonus(board, losing_king_sq, winning_color):
     """In K+B+N vs K, drive the losing king to the corner whose color
     matches the bishop's square color.
-    Dark-square bishop → target a1 (dark) or h8 (dark).
-    Light-square bishop → target a8 (light) or h1 (light)."""
+    Dark-square bishop -> target a1 (dark) or h8 (dark).
+    Light-square bishop -> target a8 (light) or h1 (light).
+
+    This is one of the hardest basic endgames. The heuristic must provide
+    a smooth gradient that:
+      - Pushes the losing king to the edge
+      - REPELS the losing king from the WRONG corners
+      - ATTRACTS the losing king to the CORRECT corners
+      - Keeps the winning king close
+      - Rewards restricting the losing king's mobility
+      - Rewards the knight being positioned to control the correct corner
+    """
     bishops = list(board.pieces(chess.BISHOP, winning_color))
     if len(bishops) != 1:
         return 0
 
+    knights = list(board.pieces(chess.KNIGHT, winning_color))
+    if len(knights) != 1:
+        return 0
+
     # Bishop square color: 0 = dark, 1 = light
     bsq = bishops[0]
+    knight_sq = knights[0]
     bishop_color = (chess.square_file(bsq) + chess.square_rank(bsq)) % 2
 
     # Target corners matching bishop's square color
     # a1=(0,0) dark, h8=(7,7) dark, a8=(0,7) light, h1=(7,0) light
     if bishop_color == 0:  # dark-square bishop
         target_corners = [(0, 0), (7, 7)]  # a1, h8
+        wrong_corners  = [(0, 7), (7, 0)]  # a8, h1
     else:  # light-square bishop
         target_corners = [(0, 7), (7, 0)]  # a8, h1
+        wrong_corners  = [(0, 0), (7, 7)]  # a1, h8
 
     losing_file = chess.square_file(losing_king_sq)
     losing_rank = chess.square_rank(losing_king_sq)
 
-    # Distance to nearest correct corner (Chebyshev)
-    min_corner_dist = min(
+    # 1. Edge Push: Force the losing king to the edge of the board
+    edge_dist = _king_edge_distance(losing_king_sq)
+    edge_bonus = edge_dist * 80
+
+    # 2. Correct Corner Push: Distance to nearest *correct* corner (Chebyshev)
+    min_correct_dist = min(
         max(abs(losing_file - cf), abs(losing_rank - cr))
         for cf, cr in target_corners
     )
+    # Very strong multiplier — this is the most important term.
+    # The engine must prefer correct-corner proximity over everything else.
+    corner_bonus = (7 - min_correct_dist) * 500
 
-    # Strong bonus — KBN needs heavy guidance (40cp per unit closer)
-    corner_bonus = (7 - min_corner_dist) * 40
+    # 3. Wrong Corner Repulsion: PENALIZE the losing king being near wrong corners.
+    # This creates a gradient that pushes the king out of the wrong corner
+    # (the classic KBN failure mode).
+    min_wrong_dist = min(
+        max(abs(losing_file - cf), abs(losing_rank - cr))
+        for cf, cr in wrong_corners
+    )
+    # Bonus for being FAR from wrong corners
+    wrong_corner_penalty = min_wrong_dist * 200
 
-    # Also reward the winning king being close to the losing king
+    # 4. King Proximity: Winning king must stay close to the losing king
     winning_king = board.king(winning_color)
     king_dist = _chebyshev_distance(winning_king, losing_king_sq)
-    proximity_bonus = (7 - king_dist) * 10
+    proximity_bonus = (14 - king_dist) * 60
 
-    return corner_bonus + proximity_bonus
+    # 5. Knight Coordination: Reward the knight being near the correct corner
+    # The knight needs to control squares in the mating net.
+    knight_file = chess.square_file(knight_sq)
+    knight_rank = chess.square_rank(knight_sq)
+    min_knight_corner_dist = min(
+        max(abs(knight_file - cf), abs(knight_rank - cr))
+        for cf, cr in target_corners
+    )
+    # Also reward knight being close to the losing king (controls escape)
+    knight_king_dist = _chebyshev_distance(knight_sq, losing_king_sq)
+    knight_bonus = (7 - min_knight_corner_dist) * 30 + (7 - knight_king_dist) * 20
+
+    # 6. King Trapping (Mobility): Restrict the losing king's safe squares
+    safe_squares = 0
+    for r_off in (-1, 0, 1):
+        for f_off in (-1, 0, 1):
+            if r_off == 0 and f_off == 0:
+                continue
+            tr = losing_rank + r_off
+            tf = losing_file + f_off
+            if 0 <= tr <= 7 and 0 <= tf <= 7:
+                tsq = chess.square(tf, tr)
+                if not board.is_attacked_by(winning_color, tsq):
+                    safe_squares += 1
+
+    # Reward fewer safe squares (max 8, so 8 - safe = how trapped)
+    trapping_bonus = (8 - safe_squares) * 60
+
+    return (edge_bonus + corner_bonus + wrong_corner_penalty +
+            proximity_bonus + knight_bonus + trapping_bonus)
 
