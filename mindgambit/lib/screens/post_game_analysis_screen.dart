@@ -490,10 +490,26 @@ class _PostGameAnalysisScreenState extends State<PostGameAnalysisScreen> {
         ? 'Review $san: try to improve piece coordination and check tactical threats before committing.'
         : comm!;
 
+    // Check if it's a bad move
+    final isBadMove =
+        resolvedCat == 'BLUNDER' ||
+        resolvedCat == 'NOT_GOOD_MOVE' ||
+        resolvedCat == 'INACCURACY';
+
     // Extract best alternative SAN if present
     String? bestAlt;
     if (altList != null && altList.isNotEmpty) {
       bestAlt = altList.first['san']?.toString();
+    }
+
+    if (isBadMove) {
+      // Custom card for bad moves showing all alternatives
+      return _buildBadMoveAnalysis(
+        san: san,
+        category: resolvedCat,
+        comment: resolvedComment,
+        alternatives: altList,
+      );
     }
 
     return CoachFeedbackPanel(
@@ -502,6 +518,195 @@ class _PostGameAnalysisScreenState extends State<PostGameAnalysisScreen> {
       alternatives: altList,
       bestAlternativeSan: bestAlt,
     );
+  }
+
+  Widget _buildBadMoveAnalysis({
+    required String san,
+    required String category,
+    required String comment,
+    required List<Map<String, dynamic>>? alternatives,
+  }) {
+    final color = _catColors[category] ?? AppColors.primary;
+    final icon = _catIcons[category] ?? Icons.chat_bubble_outline;
+    final categoryLabel = _labelForCategory(category);
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border(
+          left: BorderSide(color: color, width: 4),
+          top: BorderSide(color: AppColors.textMuted.withValues(alpha: 0.1)),
+          right: BorderSide(color: AppColors.textMuted.withValues(alpha: 0.1)),
+          bottom: BorderSide(color: AppColors.textMuted.withValues(alpha: 0.1)),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Category badge with warning
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.18),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, size: 16, color: color),
+                ),
+                const SizedBox(width: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    categoryLabel,
+                    style: AppTextStyles.labelSmall.copyWith(
+                      color: color,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            // Move that was played
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Text(
+                    'Move Played: ',
+                    style: AppTextStyles.bodySmall.copyWith(
+                      color: AppColors.textMuted,
+                    ),
+                  ),
+                  Text(
+                    san,
+                    style: AppTextStyles.bodyLarge.copyWith(
+                      color: color,
+                      fontWeight: FontWeight.w800,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            // Comment
+            Text(
+              comment.trim().isEmpty
+                  ? 'This move resulted in a worse position. Consider the alternatives below.'
+                  : comment,
+              style: AppTextStyles.bodyMedium.copyWith(
+                color: AppColors.textPrimary,
+                height: 1.45,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 12),
+            // Better alternatives section
+            if (alternatives != null && alternatives.isNotEmpty) ...[
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF28C76F).withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: const Color(0xFF28C76F).withValues(alpha: 0.2),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.thumb_up_outlined,
+                          size: 15,
+                          color: const Color(0xFF28C76F),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'BETTER MOVES AVAILABLE',
+                          style: AppTextStyles.labelSmall.copyWith(
+                            color: const Color(0xFF28C76F),
+                            fontWeight: FontWeight.w800,
+                            fontSize: 10,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    ..._buildAlternativesList(alternatives),
+                  ],
+                ),
+              ),
+            ] else ...[
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'No stronger alternatives analyzed for this move.',
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: AppColors.textMuted,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _labelForCategory(String cat) {
+    switch (cat) {
+      case 'BLUNDER':
+        return 'Blunder';
+      case 'NOT_GOOD_MOVE':
+        return 'Not Good Move';
+      case 'INACCURACY':
+        return 'Inaccuracy';
+      case 'GREAT_MOVE':
+        return 'Great Move';
+      case 'GOOD_MOVE':
+        return 'Good Move';
+      case 'BEST_MOVE':
+        return 'Best Move';
+      case 'NICE_CAPTURE':
+        return 'Nice Capture';
+      case 'CHECK':
+        return 'Check';
+      case 'MATE':
+        return 'Checkmate';
+      case 'DEVELOPMENT':
+        return 'Development Move';
+      case 'ENGINE_REASON':
+        return 'Engine Move';
+      default:
+        return cat.replaceAll('_', ' ');
+    }
   }
 
   List<Map<String, dynamic>>? _normalizeAlternatives(dynamic raw) {
@@ -518,6 +723,81 @@ class _PostGameAnalysisScreenState extends State<PostGameAnalysisScreen> {
       out.add({'san': sanRaw.toString(), 'eval_cp': evalCp});
     }
     return out;
+  }
+
+  List<Widget> _buildAlternativesList(List<Map<String, dynamic>> alternatives) {
+    final widgets = <Widget>[];
+    final alts = alternatives.take(5).toList();
+
+    for (int index = 0; index < alts.length; index++) {
+      final alt = alts[index];
+      final san = alt['san'] ?? '?';
+      final rawCp = alt['eval_cp'];
+      final cp = rawCp is num ? rawCp.toInt() : int.tryParse('$rawCp') ?? 0;
+      final evalVal = (cp / 100.0).toStringAsFixed(1);
+      final evalStr = cp >= 0 ? '+$evalVal' : evalVal;
+      final isBest = index == 0;
+
+      widgets.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+              color: isBest
+                  ? const Color(0xFF28C76F).withValues(alpha: 0.12)
+                  : AppColors.surface,
+              borderRadius: BorderRadius.circular(6),
+              border: isBest
+                  ? Border.all(
+                      color: const Color(0xFF28C76F).withValues(alpha: 0.3),
+                    )
+                  : null,
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    if (isBest)
+                      Container(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: const Icon(
+                          Icons.star,
+                          size: 14,
+                          color: Color(0xFF28C76F),
+                        ),
+                      ),
+                    Text(
+                      san.toString(),
+                      style: AppTextStyles.bodyLarge.copyWith(
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.w700,
+                        color: isBest
+                            ? const Color(0xFF28C76F)
+                            : AppColors.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+                Text(
+                  evalStr,
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: cp >= 0
+                        ? const Color(0xFF28C76F)
+                        : AppColors.textMuted,
+                    fontWeight: FontWeight.w600,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return widgets;
   }
 
   // ── Move List ────────────────────────────────────────
