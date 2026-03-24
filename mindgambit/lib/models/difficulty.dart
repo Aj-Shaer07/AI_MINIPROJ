@@ -3,46 +3,60 @@ import 'package:flutter/material.dart';
 /// Difficulty levels for the chess AI engine.
 enum Difficulty {
   beginner(
-    depth: 2,
-    label: 'Beginner',
-    description: 'Basic tactics, limited lookahead',
+    depth: 3,
+    label: 'Beginner Bot',
+    description: 'Makes random-ish moves. Perfect for beginners.',
     icon: Icons.child_care,
+    emoji: '🤖',
+    elo: 800,
   ),
   easy(
-    depth: 3,
-    label: 'Easy',
-    description: 'Sees simple combinations',
-    icon: Icons.directions_walk,
+    depth: 5,
+    label: 'Casual Bot',
+    description: 'Plays basic tactics. A good casual opponent.',
+    icon: Icons.sentiment_satisfied,
+    emoji: '😊',
+    elo: 1200,
   ),
   medium(
     depth: 4,
-    label: 'Medium',
-    description: 'Strong positional play',
-    icon: Icons.directions_run,
+    label: 'Intermediate Bot',
+    description: 'Understands strategy and plans ahead.',
+    icon: Icons.sentiment_very_satisfied,
+    emoji: '🧐',
+    elo: 1500,
   ),
   hard(
-    depth: 5,
-    label: 'Hard',
-    description: 'Deep tactical + positional',
-    icon: Icons.fitness_center,
+    depth: 7,
+    label: 'Advanced Bot',
+    description: 'Aggressive and hard to beat. Plays deep combinations.',
+    icon: Icons.local_fire_department,
+    emoji: '🔥',
+    elo: 2000,
   ),
   expert(
     depth: 6,
-    label: 'Expert',
-    description: 'Maximum engine strength',
+    label: 'Expert Bot',
+    description: 'Near-perfect play. Only for the brave.',
     icon: Icons.military_tech,
+    emoji: '🤖',
+    elo: 2500,
   );
 
   final int depth;
   final String label;
   final String description;
   final IconData icon;
+  final String emoji;
+  final int elo;
 
   const Difficulty({
     required this.depth,
     required this.label,
     required this.description,
     required this.icon,
+    required this.emoji,
+    required this.elo,
   });
 
   /// Algorithm techniques active at this level.

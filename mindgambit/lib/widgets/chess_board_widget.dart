@@ -195,38 +195,34 @@ class ChessBoardWidget extends StatelessWidget {
   Widget _buildPiece(chess.Piece piece, double squareSize) {
     final isWhite = piece.color == chess.Color.WHITE;
     final symbol = ChessPieces.getSymbol(piece.type.toString(), isWhite);
+    final fill = isWhite ? const Color(0xFFF7F7F7) : const Color(0xFF121212);
+    final outline = isWhite
+        ? const Color(0xFF1E1E1E)
+        : const Color(0xFFE7D7BA);
 
-    // White pieces: white fill with dark outline
-    // Black pieces: dark fill with lighter outline
+    // Two-pass text render: crisp outline + fill for reliable contrast.
     return Stack(
       alignment: Alignment.center,
       children: [
-        // Shadow/outline layer
         Text(
           symbol,
+          textAlign: TextAlign.center,
           style: TextStyle(
-            fontSize: squareSize * 0.72,
+            fontSize: squareSize * 0.74,
             height: 1.0,
             foreground: Paint()
               ..style = PaintingStyle.stroke
-              ..strokeWidth = 1.5
-              ..color = isWhite ? Colors.black87 : Colors.black54,
+              ..strokeWidth = 1.2
+              ..color = outline,
           ),
         ),
-        // Fill layer
         Text(
           symbol,
+          textAlign: TextAlign.center,
           style: TextStyle(
-            fontSize: squareSize * 0.72,
+            fontSize: squareSize * 0.74,
             height: 1.0,
-            color: isWhite ? Colors.white : Colors.black87,
-            shadows: [
-              Shadow(
-                color: Colors.black.withValues(alpha: 0.4),
-                offset: const Offset(1, 1),
-                blurRadius: 3,
-              ),
-            ],
+            color: fill,
           ),
         ),
       ],

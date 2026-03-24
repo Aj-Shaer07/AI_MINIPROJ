@@ -1,6 +1,5 @@
 import 'package:chess/chess.dart' as chess;
 import 'evaluation.dart';
-import 'explainer.dart';
 import 'move_ordering.dart';
 import 'tablebase.dart';
 import 'transposition.dart';
@@ -648,20 +647,6 @@ bool _hasNonPawnMaterial(chess.Chess board) {
     'max_qply': result.stats.maxQPly,
     'alternatives': result.alternatives,
   };
-
-  // Compute XAI explanation
-  if (result.move != null) {
-    try {
-      final explanation = Explainer.explainMove(
-        board,
-        result.move!,
-        info.map((k, v) => MapEntry(k, v is int ? v : 0)), // typecast
-      );
-      info['explanation'] = explanation;
-    } catch (e) {
-      // Ignore XAI errors so search never fails
-    }
-  }
 
   return (move: result.move, info: info);
 }

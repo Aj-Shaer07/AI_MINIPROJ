@@ -6,10 +6,17 @@ class GameState {
   final chess.Chess board;
   final Difficulty difficulty;
   final bool playerIsWhite;
+  final String initialFen; // Store the initial fen to reconstruct history
   final List<String> moveHistory;
+  final List<chess.Move> moveHistoryObjects; // Store actual moves for playback
   final List<String> capturedByWhite; // pieces white has captured
   final List<String> capturedByBlack; // pieces black has captured
   bool isEngineThinking;
+
+  // Coach and Analysis metadata
+  final List<String?> moveCategories;
+  final List<String?> moveComments;
+  final List<List<Map<String, dynamic>>?> moveAlternatives;
 
   GameState({
     required this.difficulty,
@@ -18,10 +25,15 @@ class GameState {
     String? fen,
   }) : board =
            board ?? (fen != null ? chess.Chess.fromFEN(fen) : chess.Chess()),
+       initialFen = fen ?? chess.Chess.DEFAULT_POSITION,
        moveHistory = [],
+       moveHistoryObjects = [],
        capturedByWhite = [],
        capturedByBlack = [],
-       isEngineThinking = false;
+       isEngineThinking = false,
+       moveCategories = [],
+       moveComments = [],
+       moveAlternatives = [];
 
   bool get isPlayerTurn =>
       (playerIsWhite && board.turn == chess.Color.WHITE) ||
@@ -56,5 +68,19 @@ class GameState {
       return 'You Lose 😔';
     }
     return 'Draw 🤝';
+  }
+
+  /// Reconstructs the board state up to a specific move index.
+  /// Index is 0-based and corresponds to the length of moves applied.
+  /// If index == moveHistoryObjects.length, it returns current state.
+  chess.Chess getBoardAtMove(int index) {
+    if (index < 0 || index > moveHistoryObjects.length) {
+      return chess.Chess.fromFEN(board.fen); // Fallback
+    }
+    final reviewBoard = chess.Chess.fromFEN(initialFen);
+    for (int i = 0; i < index; i++) {
+        reviewBoard.move(moveHistoryObjects[i]);
+    }
+    return reviewBoard;
   }
 }

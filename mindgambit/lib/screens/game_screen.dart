@@ -6,15 +6,22 @@ import '../theme/app_text_styles.dart';
 import '../models/difficulty.dart';
 import '../models/game_state.dart';
 import '../engine/engine.dart';
+import '../engine/explainer.dart';
+import '../engine/evaluation.dart';
+import '../engine/search.dart' as engine_search;
 import '../widgets/chess_board_widget.dart';
 import '../widgets/promotion_dialog.dart';
+import '../widgets/move_history_panel.dart';
+import '../widgets/eval_bar.dart';
+import '../widgets/coach_feedback_panel.dart';
+import '../screens/post_game_analysis_screen.dart';
 
-/// Main game screen matching the "Chess AI" screenshot layout.
+/// Main game screen — portrait-first layout matching the Chess AI screenshots.
 class GameScreen extends StatefulWidget {
   final Difficulty difficulty;
   final bool playerIsWhite;
   final int timerSeconds;
-  final bool enableExplanation;
+  final bool enableCoachMode;
   final String? fen;
 
   const GameScreen({
@@ -22,7 +29,7 @@ class GameScreen extends StatefulWidget {
     required this.difficulty,
     required this.playerIsWhite,
     this.timerSeconds = 0,
-    this.enableExplanation = true,
+    this.enableCoachMode = false,
     this.fen,
   });
 
@@ -36,16 +43,27 @@ class _GameScreenState extends State<GameScreen> {
   List<chess.Move> _legalMoves = [];
   chess.Move? _lastMove;
   bool _boardFlipped = false;
-  int _evalCp = 0;
-  Map<String, dynamic> _engineInfo = {};
+  Map<String, dynamic> _engineRawInfo = {};
   final ScrollController _moveScrollController = ScrollController();
 
-  // Chess clock
+  // ── Coach state (persistent, not timed) ──────────────
+  Map<String, dynamic>? _lastCoachData; // {key, text, bestSan}
+
+  // ── Review mode ──────────────────────────────────────
+  int? _reviewMoveIndex;
+  bool get _isReviewMode =>
+      _reviewMoveIndex != null &&
+      _reviewMoveIndex! < _gameState.moveHistory.length;
+
+  // ── Chess clock ──────────────────────────────────────
   late int _whiteTimeLeft;
   late int _blackTimeLeft;
   Timer? _clockTimer;
   bool get _hasTimer => widget.timerSeconds > 0;
 
+  // ──────────────────────────────────────────────────────
+  // Init / Dispose
+  // ──────────────────────────────────────────────────────
   @override
   void initState() {
     super.initState();
@@ -59,7 +77,6 @@ class _GameScreenState extends State<GameScreen> {
     _blackTimeLeft = widget.timerSeconds;
 
     if (_hasTimer) _startClock();
-
     if (!_gameState.isPlayerTurn && !_gameState.isGameOver) {
       _scheduleEngineMove();
     }
@@ -72,12 +89,13 @@ class _GameScreenState extends State<GameScreen> {
     super.dispose();
   }
 
-  // ─── Chess Clock ───────────────────────────────────────
+  // ──────────────────────────────────────────────────────
+  // Chess Clock
+  // ──────────────────────────────────────────────────────
   void _startClock() {
     _clockTimer?.cancel();
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_gameState.isGameOver || _gameState.isEngineThinking) return;
-
+      if (_gameState.isGameOver) return;
       setState(() {
         if (_gameState.board.turn == chess.Color.WHITE) {
           _whiteTimeLeft--;
@@ -108,7 +126,7 @@ class _GameScreenState extends State<GameScreen> {
         backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text(
-          'Time\'s Up!',
+          "Time's Up!",
           style: AppTextStyles.headlineMedium,
           textAlign: TextAlign.center,
         ),
@@ -146,15 +164,18 @@ class _GameScreenState extends State<GameScreen> {
     return '${m.toString()}:${s.toString().padLeft(2, '0')}';
   }
 
-  // ─── Move Logic ────────────────────────────────────────
+  // ──────────────────────────────────────────────────────
+  // Move Logic
+  // ──────────────────────────────────────────────────────
   void _onSquareTapped(int squareIndex) {
     if (_gameState.isGameOver || _gameState.isEngineThinking) return;
     if (!_gameState.isPlayerTurn) return;
     if (_hasTimer &&
         ((_gameState.board.turn == chess.Color.WHITE && _whiteTimeLeft <= 0) ||
             (_gameState.board.turn == chess.Color.BLACK &&
-                _blackTimeLeft <= 0)))
+                _blackTimeLeft <= 0))) {
       return;
+    }
 
     final sqName = _indexToAlgebraic(squareIndex);
     final piece = _gameState.board.get(sqName);
@@ -179,6 +200,7 @@ class _GameScreenState extends State<GameScreen> {
         setState(() {
           _selectedSquare = null;
           _legalMoves = [];
+          _reviewMoveIndex = null;
         });
         return;
       }
@@ -243,6 +265,7 @@ class _GameScreenState extends State<GameScreen> {
     setState(() {
       _selectedSquare = null;
       _legalMoves = [];
+      _reviewMoveIndex = null;
     });
   }
 
@@ -261,7 +284,14 @@ class _GameScreenState extends State<GameScreen> {
     return true;
   }
 
+  // ──────────────────────────────────────────────────────
+  // Execute a player move + store coach annotation
+  // ──────────────────────────────────────────────────────
   void _executeMove(chess.Move move) {
+    final boardBefore = chess.Chess.fromFEN(_gameState.board.fen);
+    final prevEval = evaluate(boardBefore);
+
+    // Track captures
     final captured = _gameState.board.get(move.toAlgebraic);
     if (captured != null) {
       if (captured.color == chess.Color.WHITE) {
@@ -284,9 +314,156 @@ class _GameScreenState extends State<GameScreen> {
     final san = _gameState.board.move_to_san(move);
     _gameState.board.move(move);
     _gameState.moveHistory.add(san);
-    setState(() {
-      _lastMove = move;
-    });
+    _gameState.moveHistoryObjects.add(move);
+
+    // ── Coach annotation ─────────────────────────────
+    String? category;
+    String? comment;
+    String? bestSan;
+    List<Map<String, dynamic>>? altList;
+
+    if (widget.enableCoachMode) {
+      try {
+        final currEval = evaluate(_gameState.board);
+        final moverIsWhite = boardBefore.turn == chess.Color.WHITE;
+        final sign = moverIsWhite ? 1 : -1;
+        final delta = (currEval - prevEval) * sign;
+
+        // Find top alternatives for mildly inaccurate moves as well.
+        if (delta <= -25) {
+          final boardForSearch = chess.Chess.fromFEN(boardBefore.fen);
+          final best = engine_search.searchWithInfo(
+            boardForSearch,
+            5,
+            engineIsBlack: boardBefore.turn == chess.Color.BLACK,
+          );
+
+          final suggestions = <Map<String, dynamic>>[];
+          final rawAlts = (best.info['alternatives'] as List<dynamic>? ?? [])
+              .whereType<Map>()
+              .toList();
+
+          for (final raw in rawAlts) {
+            final moveUci = raw['move_uci']?.toString();
+            if (moveUci == null || moveUci.length < 4) continue;
+
+            final fromSq = moveUci.substring(0, 2);
+            final toSq = moveUci.substring(2, 4);
+            chess.PieceType? promo;
+            if (moveUci.length > 4) {
+              switch (moveUci[4]) {
+                case 'q':
+                  promo = chess.PieceType.QUEEN;
+                case 'r':
+                  promo = chess.PieceType.ROOK;
+                case 'b':
+                  promo = chess.PieceType.BISHOP;
+                case 'n':
+                  promo = chess.PieceType.KNIGHT;
+              }
+            }
+
+            final suggestedMove = boardBefore
+                .generate_moves()
+                .where(
+                  (m) =>
+                      m.fromAlgebraic == fromSq &&
+                      m.toAlgebraic == toSq &&
+                      m.promotion == promo,
+                )
+                .firstOrNull;
+            if (suggestedMove == null) continue;
+
+            suggestions.add({
+              'san': boardBefore.move_to_san(suggestedMove),
+              'eval_cp': (raw['eval_cp'] as int?) ?? 0,
+            });
+          }
+
+          if (suggestions.isEmpty && best.move != null) {
+            suggestions.add({
+              'san': boardBefore.move_to_san(best.move!),
+              'eval_cp': (best.info['eval_cp'] as int?) ?? 0,
+            });
+          }
+
+          // Keep only genuinely different ideas from the played move.
+          String normSan(String s) =>
+              s.replaceAll(RegExp(r'[+#?!]'), '').trim();
+          final playedNorm = normSan(san);
+          final filtered = suggestions.where((s) {
+            final moveSan = s['san']?.toString() ?? '';
+            return normSan(moveSan) != playedNorm;
+          }).toList();
+
+          final finalSuggestions = filtered.isNotEmpty ? filtered : suggestions;
+
+          if (finalSuggestions.isNotEmpty) {
+            bestSan = finalSuggestions.first['san'] as String?;
+            altList = finalSuggestions.take(3).toList();
+          }
+        }
+
+        final explanation = Explainer.analyzeMove(
+          boardBefore,
+          _gameState.board,
+          move,
+          prevEval,
+          currEval,
+          bestMoveSan: bestSan,
+        );
+
+        if (explanation != null) {
+          category = explanation['key'] as String?;
+          comment = explanation['text'] as String?;
+          setState(() {
+            _lastCoachData = {
+              'category': category,
+              'comment': comment,
+              'bestSan': bestSan,
+              'alternatives': altList,
+            };
+          });
+        } else {
+          // Always provide at least one useful coaching takeaway.
+          category = 'DEVELOPMENT';
+          comment = _buildFallbackCoachComment(
+            deltaCp: delta,
+            playedSan: san,
+            bestMoveSan: bestSan,
+          );
+          setState(() {
+            _lastCoachData = {
+              'category': category,
+              'comment': comment,
+              'bestSan': bestSan,
+              'alternatives': altList,
+            };
+          });
+        }
+      } catch (_) {
+        category = 'DEVELOPMENT';
+        comment =
+            'Solid move. Keep improving your least active piece and king safety.';
+        setState(() {
+          _lastCoachData = {
+            'category': category,
+            'comment': comment,
+            'bestSan': bestSan,
+            'alternatives': altList,
+          };
+        });
+      }
+    } else {
+      setState(() => _lastCoachData = null);
+    }
+
+    // Store annotation in game state
+    _gameState.moveCategories.add(category);
+    _gameState.moveComments.add(comment);
+    _gameState.moveAlternatives.add(altList);
+
+    setState(() => _lastMove = move);
     _scrollMoveHistory();
 
     if (!_gameState.isGameOver && !_gameState.isPlayerTurn) {
@@ -295,6 +472,9 @@ class _GameScreenState extends State<GameScreen> {
     if (_gameState.isGameOver) _showGameOverDialog();
   }
 
+  // ──────────────────────────────────────────────────────
+  // Engine move + annotation
+  // ──────────────────────────────────────────────────────
   void _scheduleEngineMove() {
     setState(() => _gameState.isEngineThinking = true);
 
@@ -341,6 +521,8 @@ class _GameScreenState extends State<GameScreen> {
               .firstOrNull;
 
           if (move != null) {
+            final boardBeforeEngine = chess.Chess.fromFEN(_gameState.board.fen);
+            final moverPiece = boardBeforeEngine.get(move.fromAlgebraic);
             final captured = _gameState.board.get(move.toAlgebraic);
             if (captured != null) {
               if (captured.color == chess.Color.WHITE) {
@@ -353,19 +535,65 @@ class _GameScreenState extends State<GameScreen> {
             final san = _gameState.board.move_to_san(move);
             _gameState.board.move(move);
             _gameState.moveHistory.add(san);
+            _gameState.moveHistoryObjects.add(move);
+
+            // Coach for engine move
+            String? engineCategory;
+            String? engineComment;
+
+            if (widget.enableCoachMode) {
+              try {
+                final engineExplanation = Explainer.explainMove(
+                  boardBeforeEngine,
+                  move,
+                  {'depth': result.depth, 'nodes': result.nodes},
+                );
+                final narrative =
+                    (engineExplanation['narrative'] as List<dynamic>? ?? [])
+                        .whereType<String>()
+                        .toList();
+                final primaryLine = narrative.isNotEmpty
+                    ? narrative.first
+                    : 'The move improves activity and keeps pressure.';
+
+                engineCategory = 'ENGINE_REASON';
+                engineComment = 'Engine played $san: $primaryLine';
+
+                setState(() {
+                  _lastCoachData = {
+                    'category': engineCategory,
+                    'comment': engineComment,
+                    'bestSan': null,
+                    'alternatives': null,
+                  };
+                });
+              } catch (_) {
+                engineCategory = 'ENGINE_REASON';
+                engineComment =
+                    'Engine played $san (${moverPiece?.type.name.toLowerCase() ?? 'piece'} move).';
+                setState(() {
+                  _lastCoachData = {
+                    'category': engineCategory,
+                    'comment': engineComment,
+                    'bestSan': null,
+                    'alternatives': null,
+                  };
+                });
+              }
+            }
+
+            // Store engine annotation
+            _gameState.moveCategories.add(engineCategory);
+            _gameState.moveComments.add(engineComment);
+            _gameState.moveAlternatives.add(null);
 
             setState(() {
               _lastMove = move;
-              _evalCp = result.evalCp;
-              _engineInfo = {
+              _engineRawInfo = {
                 'eval_cp': result.evalCp,
                 'depth': result.depth,
                 'time_ms': result.timeMs,
                 'nodes': result.nodes,
-                'explanation':
-                    widget.enableExplanation ? result.explanation : null,
-                'alternatives':
-                    widget.enableExplanation ? result.alternatives : const [],
               };
               _gameState.isEngineThinking = false;
             });
@@ -396,6 +624,9 @@ class _GameScreenState extends State<GameScreen> {
     });
   }
 
+  // ──────────────────────────────────────────────────────
+  // Dialogs
+  // ──────────────────────────────────────────────────────
   void _showGameOverDialog() {
     _clockTimer?.cancel();
     showDialog(
@@ -428,6 +659,16 @@ class _GameScreenState extends State<GameScreen> {
           ],
         ),
         actions: [
+          if (_gameState.moveHistory.isNotEmpty)
+            TextButton.icon(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                _openAnalysis();
+              },
+              icon: const Icon(Icons.analytics_outlined, size: 18),
+              label: const Text('Analyze Game'),
+              style: TextButton.styleFrom(foregroundColor: AppColors.accent),
+            ),
           TextButton(
             onPressed: () {
               Navigator.of(ctx).pop();
@@ -450,43 +691,16 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  void _newGame() {
-    _clockTimer?.cancel();
-    setState(() {
-      _gameState = GameState(
-        difficulty: widget.difficulty,
-        playerIsWhite: widget.playerIsWhite,
-        fen: widget.fen,
-      );
-      _selectedSquare = null;
-      _legalMoves = [];
-      _lastMove = null;
-      _evalCp = 0;
-      _engineInfo = {};
-      _whiteTimeLeft = widget.timerSeconds;
-      _blackTimeLeft = widget.timerSeconds;
-    });
-    if (_hasTimer) _startClock();
-    if (!_gameState.isPlayerTurn && !_gameState.isGameOver)
-      _scheduleEngineMove();
+  void _openAnalysis() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PostGameAnalysisScreen(gameState: _gameState),
+      ),
+    );
   }
 
-  void _undoMove() {
-    if (_gameState.moveHistory.length < 2) return;
-    _gameState.board.undo_move();
-    _gameState.board.undo_move();
-    if (_gameState.moveHistory.length >= 2) {
-      _gameState.moveHistory.removeLast();
-      _gameState.moveHistory.removeLast();
-    }
-    setState(() {
-      _selectedSquare = null;
-      _legalMoves = [];
-      _lastMove = null;
-    });
-  }
-
-  void _resign() {
+  void _showResignDialog() {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -507,14 +721,139 @@ class _GameScreenState extends State<GameScreen> {
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
-              _clockTimer?.cancel();
-              Navigator.of(context).popUntil((route) => route.isFirst);
+              _showPostResignOptionsDialog();
             },
             child: Text('Resign', style: TextStyle(color: AppColors.error)),
           ),
         ],
       ),
     );
+  }
+
+  void _showPostResignOptionsDialog() {
+    _clockTimer?.cancel();
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Text('You Resigned', style: AppTextStyles.headlineMedium),
+        content: Text(
+          'Would you like to go home or review the game?',
+          style: AppTextStyles.bodyMedium,
+        ),
+        actions: [
+          if (_gameState.moveHistory.isNotEmpty)
+            TextButton.icon(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                _openAnalysis();
+              },
+              icon: const Icon(Icons.analytics_outlined, size: 18),
+              label: const Text('Post-Game Analysis'),
+              style: TextButton.styleFrom(foregroundColor: AppColors.accent),
+            ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              Navigator.of(context).popUntil((route) => route.isFirst);
+            },
+            child: Text(
+              'Home',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ──────────────────────────────────────────────────────
+  // New game / Undo
+  // ──────────────────────────────────────────────────────
+  void _newGame() {
+    _clockTimer?.cancel();
+    setState(() {
+      _gameState = GameState(
+        difficulty: widget.difficulty,
+        playerIsWhite: widget.playerIsWhite,
+        fen: widget.fen,
+      );
+      _selectedSquare = null;
+      _legalMoves = [];
+      _lastMove = null;
+      _engineRawInfo = {};
+      _lastCoachData = null;
+      _reviewMoveIndex = null;
+      _whiteTimeLeft = widget.timerSeconds;
+      _blackTimeLeft = widget.timerSeconds;
+    });
+    if (_hasTimer) _startClock();
+    if (!_gameState.isPlayerTurn && !_gameState.isGameOver) {
+      _scheduleEngineMove();
+    }
+  }
+
+  void _undoMove() {
+    if (_gameState.moveHistory.length < 2) return;
+    _gameState.board.undo_move();
+    _gameState.board.undo_move();
+    final len = _gameState.moveHistory.length;
+    if (len >= 2) {
+      _gameState.moveHistory.removeRange(len - 2, len);
+      _gameState.moveHistoryObjects.removeRange(len - 2, len);
+      _gameState.moveCategories.removeRange(len - 2, len);
+      _gameState.moveComments.removeRange(len - 2, len);
+      _gameState.moveAlternatives.removeRange(len - 2, len);
+    }
+    setState(() {
+      _selectedSquare = null;
+      _legalMoves = [];
+      _lastMove = null;
+      _lastCoachData = null;
+      _reviewMoveIndex = null;
+    });
+  }
+
+  // ──────────────────────────────────────────────────────
+  // Review/Playback
+  // ──────────────────────────────────────────────────────
+  void _goToFirstMove() {
+    if (_gameState.moveHistory.isEmpty) return;
+    setState(() => _reviewMoveIndex = 0);
+  }
+
+  void _goToPreviousMove() {
+    if (_gameState.moveHistory.isEmpty) return;
+    setState(() {
+      _reviewMoveIndex =
+          (_reviewMoveIndex ?? _gameState.moveHistory.length) - 1;
+      if (_reviewMoveIndex! < 0) _reviewMoveIndex = 0;
+    });
+  }
+
+  void _goToNextMove() {
+    if (_gameState.moveHistory.isEmpty) return;
+    setState(() {
+      if (_reviewMoveIndex == null) return;
+      _reviewMoveIndex = _reviewMoveIndex! + 1;
+      if (_reviewMoveIndex! >= _gameState.moveHistory.length) {
+        _reviewMoveIndex = null;
+      }
+    });
+  }
+
+  void _goToLastMove() {
+    setState(() => _reviewMoveIndex = null);
+  }
+
+  void _goToMove(int index) {
+    if (index >= _gameState.moveHistory.length - 1) {
+      setState(() => _reviewMoveIndex = null);
+    } else {
+      setState(() => _reviewMoveIndex = index + 1);
+    }
   }
 
   String _indexToAlgebraic(int index) {
@@ -524,7 +863,15 @@ class _GameScreenState extends State<GameScreen> {
         String.fromCharCode('1'.codeUnitAt(0) + rank);
   }
 
-  // ─── Build ─────────────────────────────────────────────
+  bool _isActiveTimer(bool isWhiteSide) {
+    if (_gameState.isGameOver) return false;
+    return (isWhiteSide && _gameState.board.turn == chess.Color.WHITE) ||
+        (!isWhiteSide && _gameState.board.turn == chess.Color.BLACK);
+  }
+
+  // ──────────────────────────────────────────────────────
+  // Build
+  // ──────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -533,11 +880,10 @@ class _GameScreenState extends State<GameScreen> {
         child: SafeArea(
           child: LayoutBuilder(
             builder: (context, constraints) {
-              // Use landscape-style layout for wide screens, portrait for narrow ones
               if (constraints.maxWidth > 800) {
                 return _buildWideLayout(constraints);
               }
-              return _buildNarrowLayout(constraints);
+              return _buildPortraitLayout(constraints);
             },
           ),
         ),
@@ -545,10 +891,11 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  // ─── Wide (Desktop/Landscape) Layout ───────────────────
+  // ──────────────────────────────────────────────────────
+  // Wide (Desktop / Landscape) Layout
+  // ──────────────────────────────────────────────────────
   Widget _buildWideLayout(BoxConstraints constraints) {
-    final boardMaxSize =
-        constraints.maxHeight - 120; // leave room for labels + timer
+    final boardMaxSize = (constraints.maxHeight - 120).clamp(300.0, 640.0);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -557,28 +904,48 @@ class _GameScreenState extends State<GameScreen> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Left: Board area with player labels
+              // Board column
               Padding(
                 padding: const EdgeInsets.only(left: 24, right: 16),
                 child: SizedBox(
-                  width: boardMaxSize.clamp(300, 640).toDouble(),
+                  width: boardMaxSize,
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       _buildPlayerLabel(isTop: true),
                       const SizedBox(height: 4),
-                      Flexible(
-                        child: ChessBoardWidget(
-                          board: _gameState.board,
-                          boardFlipped: _boardFlipped,
-                          selectedSquare: _selectedSquare,
-                          legalMoves: _legalMoves,
-                          lastMove: _lastMove,
-                          onSquareTapped: _onSquareTapped,
-                          enabled:
-                              _gameState.isPlayerTurn &&
-                              !_gameState.isEngineThinking,
-                        ),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Eval bar
+                          SizedBox(
+                            width: 24,
+                            child: _buildVerticalEvalBar(boardMaxSize),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: ChessBoardWidget(
+                              board: _isReviewMode
+                                  ? _gameState.getBoardAtMove(_reviewMoveIndex!)
+                                  : _gameState.board,
+                              boardFlipped: _boardFlipped,
+                              selectedSquare: _selectedSquare,
+                              legalMoves: _legalMoves,
+                              lastMove: _isReviewMode
+                                  ? (_reviewMoveIndex! > 0
+                                        ? _gameState
+                                              .moveHistoryObjects[_reviewMoveIndex! -
+                                              1]
+                                        : null)
+                                  : _lastMove,
+                              onSquareTapped: _onSquareTapped,
+                              enabled:
+                                  _gameState.isPlayerTurn &&
+                                  !_gameState.isEngineThinking &&
+                                  !_isReviewMode,
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 4),
                       _buildPlayerLabel(isTop: false),
@@ -586,8 +953,7 @@ class _GameScreenState extends State<GameScreen> {
                   ),
                 ),
               ),
-
-              // Right: Info panel
+              // Right info panel
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(0, 16, 24, 16),
@@ -601,72 +967,308 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  // ─── Narrow (Portrait) Layout ──────────────────────────
-  Widget _buildNarrowLayout(BoxConstraints constraints) {
-    final showExplainButton = widget.enableExplanation;
+  Widget _buildVerticalEvalBar(double boardHeight) {
+    final cp = _engineRawInfo['eval_cp'] as int? ?? 0;
+    return SizedBox(
+      height: boardHeight,
+      child: EvalBar(evalCp: cp, isVertical: true),
+    );
+  }
 
-    return Column(
+  // ──────────────────────────────────────────────────────
+  // Portrait Layout (primary phone layout)
+  // ──────────────────────────────────────────────────────
+  Widget _buildPortraitLayout(BoxConstraints constraints) {
+    return Stack(
       children: [
-        _buildTitleBar(),
-        const SizedBox(height: 4),
-        // Top player label
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: _buildPlayerLabel(isTop: true),
-        ),
-        const SizedBox(height: 4),
-        // Board
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: ChessBoardWidget(
-              board: _gameState.board,
-              boardFlipped: _boardFlipped,
-              selectedSquare: _selectedSquare,
-              legalMoves: _legalMoves,
-              lastMove: _lastMove,
-              onSquareTapped: _onSquareTapped,
-              enabled: _gameState.isPlayerTurn && !_gameState.isEngineThinking,
-            ),
+        // Main scrollable content
+        SingleChildScrollView(
+          child: Column(
+            children: [
+              _buildTitleBar(),
+              const SizedBox(height: 4),
+              // Top player label (opponent)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _buildPlayerLabel(isTop: true),
+              ),
+              const SizedBox(height: 6),
+              // Board + Eval bar in a Row
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Vertical eval bar
+                    SizedBox(
+                      width: 24,
+                      child: AspectRatio(
+                        aspectRatio: 1 / 8,
+                        child: EvalBar(
+                          evalCp: _engineRawInfo['eval_cp'] as int? ?? 0,
+                          isVertical: true,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    // Board
+                    Expanded(
+                      child: ChessBoardWidget(
+                        board: _isReviewMode
+                            ? _gameState.getBoardAtMove(_reviewMoveIndex!)
+                            : _gameState.board,
+                        boardFlipped: _boardFlipped,
+                        selectedSquare: _selectedSquare,
+                        legalMoves: _legalMoves,
+                        lastMove: _isReviewMode
+                            ? (_reviewMoveIndex! > 0
+                                  ? _gameState
+                                        .moveHistoryObjects[_reviewMoveIndex! -
+                                        1]
+                                  : null)
+                            : _lastMove,
+                        onSquareTapped: _onSquareTapped,
+                        enabled:
+                            _gameState.isPlayerTurn &&
+                            !_gameState.isEngineThinking &&
+                            !_isReviewMode,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 6),
+              // Bottom player label (you)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _buildPlayerLabel(isTop: false),
+              ),
+              const SizedBox(height: 8),
+              // Coach comments text box
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _buildCoachTextBox(),
+              ),
+              // Bottom padding to prevent overlap with action bar
+              const SizedBox(height: 80),
+            ],
           ),
         ),
-        const SizedBox(height: 4),
-        // Bottom player label
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: _buildPlayerLabel(isTop: false),
-        ),
-        const SizedBox(height: 8),
-        // Compact action bar
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-          child: _buildCompactActions(showExplainButton: showExplainButton),
+        // Fixed action bar at bottom
+        Positioned(
+          bottom: 0,
+          left: 0,
+          right: 0,
+          child: Container(
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              border: Border(
+                top: BorderSide(
+                  color: AppColors.textMuted.withValues(alpha: 0.1),
+                ),
+              ),
+            ),
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+            child: _buildCompactActions(),
+          ),
         ),
       ],
     );
   }
 
-  // ─── Compact Action Bar (Phone) ────────────────────────
-  Widget _buildCompactActions({required bool showExplainButton}) {
+  // ──────────────────────────────────────────────────────
+  // Coach Text Box
+  // ──────────────────────────────────────────────────────
+  Widget _buildCoachTextBox() {
+    if (_lastCoachData == null) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: AppColors.card,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: AppColors.textMuted.withValues(alpha: 0.12),
+          ),
+        ),
+        child: Text(
+          _gameState.isEngineThinking
+              ? 'Engine is thinking...'
+              : 'Make a move to get coach feedback.',
+          style: AppTextStyles.bodySmall.copyWith(
+            color: AppColors.textSecondary,
+            fontStyle: FontStyle.italic,
+          ),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+      );
+    }
+
+    final comment = (_lastCoachData!['comment'] ?? '').toString().trim();
+    final category = (_lastCoachData!['category'] ?? 'DEVELOPMENT').toString();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.accent.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.lightbulb_outline, size: 14, color: AppColors.accent),
+              const SizedBox(width: 6),
+              Text(
+                category,
+                style: AppTextStyles.bodySmall.copyWith(
+                  color: AppColors.accent,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 10,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            comment.isEmpty
+                ? 'Keep improving piece activity and king safety.'
+                : comment,
+            style: AppTextStyles.bodySmall.copyWith(
+              color: AppColors.textPrimary,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ──────────────────────────────────────────────────────
+  // Coach area (below board in portrait)
+  // ──────────────────────────────────────────────────────
+  List<Map<String, dynamic>>? _normalizeAlternatives(dynamic raw) {
+    if (raw is! List) return null;
+    final out = <Map<String, dynamic>>[];
+    for (final item in raw) {
+      if (item is! Map) continue;
+      final sanRaw = item['san'];
+      final evalRaw = item['eval_cp'];
+      if (sanRaw == null) continue;
+      final evalCp = evalRaw is num
+          ? evalRaw.toInt()
+          : int.tryParse('$evalRaw') ?? 0;
+      out.add({'san': sanRaw.toString(), 'eval_cp': evalCp});
+    }
+    return out;
+  }
+
+  Widget _buildStatusBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.textMuted.withValues(alpha: 0.12)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: _gameState.isEngineThinking
+                      ? Colors.orangeAccent
+                      : AppColors.primary,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                _gameState.isEngineThinking
+                    ? 'Engine thinking...'
+                    : _gameState.statusText,
+                style: AppTextStyles.bodySmall.copyWith(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          if (_engineRawInfo.containsKey('eval_cp'))
+            Text(
+              _formatEval(_engineRawInfo['eval_cp'] as int? ?? 0),
+              style: AppTextStyles.bodySmall.copyWith(
+                color: AppColors.textMuted,
+                fontFamily: 'monospace',
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _formatEval(int cp) {
+    if (cp.abs() >= 90000) {
+      final m = (100000 - cp.abs() + 1) ~/ 2;
+      return cp > 0 ? '+M$m' : '-M$m';
+    }
+    final v = cp / 100.0;
+    return v >= 0 ? '+${v.toStringAsFixed(1)}' : v.toStringAsFixed(1);
+  }
+
+  String _buildFallbackCoachComment({
+    required int deltaCp,
+    required String playedSan,
+    String? bestMoveSan,
+  }) {
+    if (deltaCp <= -180) {
+      if (bestMoveSan != null) {
+        return 'That move allowed a big swing. Consider $bestMoveSan to stay safer and keep pressure.';
+      }
+      return 'That move allowed a big swing. Scan checks, captures, and threats before committing.';
+    }
+
+    if (deltaCp <= -70) {
+      if (bestMoveSan != null) {
+        return 'Playable, but less accurate. $bestMoveSan keeps better control of key squares.';
+      }
+      return 'Playable, but less accurate. Improve your least active piece and reduce tactical risks.';
+    }
+
+    if (deltaCp >= 90) {
+      return '$playedSan is strong. You gained activity and practical pressure.';
+    }
+
+    return '$playedSan is a reasonable move. Keep coordinating pieces and contesting the center.';
+  }
+
+  // ──────────────────────────────────────────────────────
+  // Compact bottom action bar (portrait)
+  // ──────────────────────────────────────────────────────
+  Widget _buildCompactActions() {
     return Row(
       children: [
         _compactBtn(Icons.history, 'History', _showHistorySheet),
         const SizedBox(width: 8),
-        if (showExplainButton) ...[
-          _compactBtn(
-            Icons.lightbulb_outline,
-            'Explain',
-            _hasShortExplanation ? _showPortraitExplanationPopup : null,
-            color: AppColors.primary,
-          ),
-          const SizedBox(width: 8),
-        ],
         _compactBtn(
-          Icons.undo,
-          'Undo',
-          _gameState.moveHistory.length >= 2 && !_gameState.isEngineThinking
-              ? _undoMove
-              : null,
+          _gameState.isGameOver ? Icons.add : Icons.undo,
+          _gameState.isGameOver ? 'New' : 'Undo',
+          _gameState.isGameOver
+              ? _newGame
+              : (_gameState.moveHistory.length >= 2 &&
+                        !_gameState.isEngineThinking
+                    ? _undoMove
+                    : null),
+          color: _gameState.isGameOver ? AppColors.accent : null,
         ),
         const SizedBox(width: 8),
         _compactBtn(
@@ -675,80 +1277,23 @@ class _GameScreenState extends State<GameScreen> {
           () => setState(() => _boardFlipped = !_boardFlipped),
         ),
         const SizedBox(width: 8),
-        if (!_gameState.isGameOver)
+        if (_gameState.isGameOver && _gameState.moveHistory.isNotEmpty)
           _compactBtn(
-            Icons.flag_outlined,
-            'Resign',
-            _resign,
-            color: AppColors.error,
+            Icons.analytics_outlined,
+            'Analyze',
+            _openAnalysis,
+            color: AppColors.accent,
+          )
+        else
+          _compactBtn(
+            _gameState.isGameOver ? Icons.flag_outlined : Icons.outlined_flag,
+            _gameState.isGameOver ? 'Done' : 'Resign',
+            _gameState.isGameOver
+                ? () => Navigator.of(context).popUntil((r) => r.isFirst)
+                : _showResignDialog,
+            color: AppColors.error.withValues(alpha: 0.8),
           ),
-        if (_gameState.isGameOver)
-          _compactBtn(Icons.add, 'New', _newGame, color: AppColors.accent),
       ],
-    );
-  }
-
-  bool get _hasShortExplanation {
-    if (!widget.enableExplanation) return false;
-    final explanation = _engineInfo['explanation'];
-    if (explanation is! Map<String, dynamic>) return false;
-    final narrative = explanation['narrative'];
-    return narrative is List && narrative.isNotEmpty;
-  }
-
-  void _showPortraitExplanationPopup() {
-    final explanation = _engineInfo['explanation'] as Map<String, dynamic>?;
-    if (explanation == null) return;
-
-    final narrative = (explanation['narrative'] as List<dynamic>? ?? [])
-        .whereType<String>()
-        .toList();
-    final shortLines = narrative.take(2).toList();
-    final scoreCp = explanation['after_eval_cp'] as int? ?? _evalCp;
-    final scoreText = (scoreCp / 100.0).toStringAsFixed(2);
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('AI Explanation', style: AppTextStyles.titleLarge),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Eval: ${scoreCp >= 0 ? '+' : ''}$scoreText',
-              style: AppTextStyles.bodyMedium.copyWith(
-                color: scoreCp >= 0 ? Colors.greenAccent : Colors.redAccent,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 10),
-            if (shortLines.isEmpty)
-              Text(
-                'No explanation available yet. Play a move and try again.',
-                style: AppTextStyles.bodyMedium.copyWith(
-                  color: AppColors.textMuted,
-                ),
-              ),
-            for (final line in shortLines)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text(
-                  '- $line',
-                  style: AppTextStyles.bodyMedium,
-                ),
-              ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text('Close', style: TextStyle(color: AppColors.primary)),
-          ),
-        ],
-      ),
     );
   }
 
@@ -767,12 +1312,12 @@ class _GameScreenState extends State<GameScreen> {
           duration: const Duration(milliseconds: 200),
           opacity: disabled ? 0.3 : 1.0,
           child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 10),
+            padding: const EdgeInsets.symmetric(vertical: 9),
             decoration: BoxDecoration(
               color: AppColors.card,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                color: AppColors.textMuted.withValues(alpha: 0.15),
+                color: AppColors.textMuted.withValues(alpha: 0.12),
               ),
             ),
             child: Column(
@@ -795,7 +1340,9 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  // ─── History Bottom Sheet ──────────────────────────────
+  // ──────────────────────────────────────────────────────
+  // History Bottom Sheet
+  // ──────────────────────────────────────────────────────
   void _showHistorySheet() {
     showModalBottomSheet(
       context: context,
@@ -812,7 +1359,6 @@ class _GameScreenState extends State<GameScreen> {
           ),
           child: Column(
             children: [
-              // Handle bar
               Padding(
                 padding: const EdgeInsets.only(top: 12, bottom: 8),
                 child: Container(
@@ -824,7 +1370,6 @@ class _GameScreenState extends State<GameScreen> {
                   ),
                 ),
               ),
-              // Tabs: Move History & Engine Eval
               Expanded(
                 child: DefaultTabController(
                   length: 2,
@@ -836,16 +1381,22 @@ class _GameScreenState extends State<GameScreen> {
                         unselectedLabelColor: AppColors.textMuted,
                         tabs: const [
                           Tab(text: 'Move History'),
-                          Tab(text: 'Engine Eval'),
+                          Tab(text: 'Engine Stats'),
                         ],
                       ),
                       Expanded(
                         child: TabBarView(
                           children: [
                             // Move History tab
-                            _buildSheetMoveHistory(scrollController),
-                            // Engine Eval tab
-                            _buildSheetEngineEval(scrollController),
+                            MoveHistoryPanel(
+                              moves: _gameState.moveHistory,
+                              scrollController: scrollController,
+                              selectedIndex: _reviewMoveIndex,
+                              onMoveTap: _goToMove,
+                              moveCategories: _gameState.moveCategories,
+                            ),
+                            // Engine Stats tab
+                            _buildEngineStatsSheet(),
                           ],
                         ),
                       ),
@@ -860,108 +1411,57 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  Widget _buildSheetMoveHistory(ScrollController scrollController) {
-    if (_gameState.moveHistory.isEmpty) {
+  Widget _buildEngineStatsSheet() {
+    if (_engineRawInfo.isEmpty) {
       return Center(
         child: Text(
-          'Moves will appear here',
+          'No engine data yet.',
           style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textMuted),
         ),
       );
     }
-    return ListView.builder(
-      controller: scrollController,
-      padding: const EdgeInsets.all(14),
-      itemCount: (_gameState.moveHistory.length + 1) ~/ 2,
-      itemBuilder: (context, index) {
-        final whiteMove = _gameState.moveHistory[index * 2];
-        final blackMove = (index * 2 + 1 < _gameState.moveHistory.length)
-            ? _gameState.moveHistory[index * 2 + 1]
-            : null;
-        return Container(
-          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-          decoration: BoxDecoration(
-            color: index % 2 == 0
-                ? Colors.transparent
-                : AppColors.surface.withValues(alpha: 0.3),
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 32,
-                child: Text(
-                  '${index + 1}.',
-                  style: AppTextStyles.bodySmall.copyWith(
-                    color: AppColors.textMuted,
+    final rows = <(String, String)>[
+      ('Eval (cp)', (_engineRawInfo['eval_cp'] ?? '-').toString()),
+      ('Depth', (_engineRawInfo['depth'] ?? '-').toString()),
+      (
+        'Time (s)',
+        ((_engineRawInfo['time_ms'] as int? ?? 0) / 1000.0).toStringAsFixed(2),
+      ),
+      ('Nodes', (_engineRawInfo['nodes'] ?? '-').toString()),
+    ];
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: rows.map((r) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    r.$1,
+                    style: AppTextStyles.bodyMedium.copyWith(
+                      color: AppColors.textMuted,
+                    ),
                   ),
                 ),
-              ),
-              Expanded(child: _moveWithIcon(whiteMove, true)),
-              Expanded(
-                child: blackMove != null
-                    ? _moveWithIcon(blackMove, false)
-                    : const SizedBox(),
-              ),
-            ],
-          ),
-        );
-      },
+                Text(
+                  r.$2,
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+      ),
     );
   }
 
-  Widget _moveWithIcon(String san, bool isWhite) {
-    String icon;
-    if (san.startsWith('O-O')) {
-      icon = isWhite ? '♔' : '♚';
-    } else if (san.startsWith('K')) {
-      icon = isWhite ? '♔' : '♚';
-    } else if (san.startsWith('Q')) {
-      icon = isWhite ? '♕' : '♛';
-    } else if (san.startsWith('R')) {
-      icon = isWhite ? '♖' : '♜';
-    } else if (san.startsWith('B')) {
-      icon = isWhite ? '♗' : '♝';
-    } else if (san.startsWith('N')) {
-      icon = isWhite ? '♘' : '♞';
-    } else {
-      icon = isWhite ? '♙' : '♟';
-    }
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(icon, style: const TextStyle(fontSize: 16)),
-        const SizedBox(width: 4),
-        Text(
-          san,
-          style: AppTextStyles.bodyMedium.copyWith(
-            color: AppColors.textPrimary,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSheetEngineEval(ScrollController scrollController) {
-    return ListView(
-      controller: scrollController,
-      padding: const EdgeInsets.all(14),
-      children: [
-        _evalRow('Eval (cp)', _evalCp),
-        _evalRow('Depth', _engineInfo['depth'] ?? 0),
-        _evalRow('Time (s)', ((_engineInfo['time_ms'] ?? 0) / 1000).round()),
-        _evalRow('Nodes', _engineInfo['nodes'] ?? 0),
-        _evalRow('Q-Nodes', _engineInfo['qnodes'] ?? 0),
-        _evalRow('Cutoffs', _engineInfo['cutoffs'] ?? 0),
-        _evalRow('TT Hits', _engineInfo['tt_hits'] ?? 0),
-        _evalRow('TT Probes', _engineInfo['tt_probes'] ?? 0),
-        _evalRow('Max Ply', _engineInfo['max_ply'] ?? 0),
-        _evalRow('Max Q-Ply', _engineInfo['max_qply'] ?? 0),
-      ],
-    );
-  }
-
-  // ─── Title Bar ─────────────────────────────────────────
+  // ──────────────────────────────────────────────────────
+  // Title Bar
+  // ──────────────────────────────────────────────────────
   Widget _buildTitleBar() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
@@ -983,6 +1483,34 @@ class _GameScreenState extends State<GameScreen> {
             ),
           ),
           const Spacer(),
+          if (widget.enableCoachMode)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              margin: const EdgeInsets.only(right: 8),
+              decoration: BoxDecoration(
+                color: AppColors.accent.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.lightbulb_outline,
+                    size: 12,
+                    color: AppColors.accent,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Coach',
+                    style: AppTextStyles.labelSmall.copyWith(
+                      color: AppColors.accent,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
@@ -1002,20 +1530,18 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  // ─── Player Label with Timer ───────────────────────────
+  // ──────────────────────────────────────────────────────
+  // Player Label
+  // ──────────────────────────────────────────────────────
   Widget _buildPlayerLabel({required bool isTop}) {
-    // Top label = opponent, Bottom label = player
-    final isEngine = isTop ? true : false;
-    final isWhiteSide = isTop
-        ? (!widget.playerIsWhite) // top is the opponent's color
-        : widget.playerIsWhite;
+    final isEngine = isTop;
+    final isWhiteSide = isTop ? !widget.playerIsWhite : widget.playerIsWhite;
     final label = isEngine ? 'Engine' : 'You';
     final colorLetter = isWhiteSide ? 'W' : 'B';
     final timeLeft = isWhiteSide ? _whiteTimeLeft : _blackTimeLeft;
 
     return Row(
       children: [
-        // Color badge
         Container(
           width: 28,
           height: 28,
@@ -1032,7 +1558,7 @@ class _GameScreenState extends State<GameScreen> {
               style: TextStyle(
                 color: isWhiteSide ? Colors.black : Colors.white,
                 fontWeight: FontWeight.w800,
-                fontSize: 14,
+                fontSize: 13,
               ),
             ),
           ),
@@ -1058,7 +1584,7 @@ class _GameScreenState extends State<GameScreen> {
         const Spacer(),
         if (_hasTimer)
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
             decoration: BoxDecoration(
               color: AppColors.surface,
               borderRadius: BorderRadius.circular(8),
@@ -1078,7 +1604,7 @@ class _GameScreenState extends State<GameScreen> {
                     : _isActiveTimer(isWhiteSide)
                     ? AppColors.textPrimary
                     : AppColors.textMuted,
-                fontSize: 18,
+                fontSize: 17,
               ),
             ),
           ),
@@ -1086,33 +1612,43 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  bool _isActiveTimer(bool isWhiteSide) {
-    if (_gameState.isGameOver) return false;
-    return (isWhiteSide && _gameState.board.turn == chess.Color.WHITE) ||
-        (!isWhiteSide && _gameState.board.turn == chess.Color.BLACK);
-  }
-
-  // ─── Right Info Panel ──────────────────────────────────
+  // ──────────────────────────────────────────────────────
+  // Wide layout right panel
+  // ──────────────────────────────────────────────────────
   Widget _buildInfoPanel() {
     return Column(
       children: [
-        // Move History
-        _buildMoveHistorySection(),
+        // Move history + playback controls
+        Expanded(
+          flex: 3,
+          child: Column(
+            children: [
+              Expanded(
+                child: MoveHistoryPanel(
+                  moves: _gameState.moveHistory,
+                  scrollController: _moveScrollController,
+                  selectedIndex: _reviewMoveIndex,
+                  onMoveTap: _goToMove,
+                  moveCategories: _gameState.moveCategories,
+                ),
+              ),
+              const SizedBox(height: 8),
+              _buildPlaybackControls(),
+            ],
+          ),
+        ),
         const SizedBox(height: 12),
-        // Engine Evaluation
-        _buildEngineEvalSection(),
+        // Coach feedback or engine stats
+        Expanded(flex: 4, child: _buildCoachPanelWide()),
         const SizedBox(height: 12),
-        // Action buttons
-        _buildActionButtons(),
+        _buildWideActionButtons(),
       ],
     );
   }
 
-  Widget _buildMoveHistorySection() {
-    final isWhiteTurn = _gameState.board.turn == chess.Color.WHITE;
-    return Expanded(
-      flex: 3,
-      child: Container(
+  Widget _buildCoachPanelWide() {
+    if (_lastCoachData == null) {
+      return Container(
         width: double.infinity,
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
@@ -1123,619 +1659,169 @@ class _GameScreenState extends State<GameScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header row
-            Row(
-              children: [
-                Text(
-                  'Move History',
-                  style: AppTextStyles.titleMedium.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.circle,
-                        size: 8,
-                        color: isWhiteTurn ? Colors.white : AppColors.textMuted,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        isWhiteTurn ? "White's Turn" : "Black's Turn",
-                        style: AppTextStyles.bodySmall.copyWith(
-                          color: AppColors.textPrimary,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+            Text(
+              'COACH FEEDBACK',
+              style: AppTextStyles.labelSmall.copyWith(
+                letterSpacing: 1.2,
+                color: AppColors.textMuted,
+              ),
             ),
-            const SizedBox(height: 10),
-            // Move list
+            const Spacer(),
+            Center(
+              child: Text(
+                _gameState.isEngineThinking
+                    ? 'Analyzing...'
+                    : 'Waiting for your next move.',
+                style: AppTextStyles.bodyMedium.copyWith(
+                  color: AppColors.textMuted,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+            const Spacer(),
+          ],
+        ),
+      );
+    }
+
+    return SingleChildScrollView(
+      child: CoachFeedbackPanel(
+        category: (_lastCoachData!['category'] ?? 'DEVELOPMENT').toString(),
+        comment: (_lastCoachData!['comment'] ?? '').toString(),
+        bestAlternativeSan: _lastCoachData!['bestSan']?.toString(),
+        alternatives: _normalizeAlternatives(_lastCoachData!['alternatives']),
+      ),
+    );
+  }
+
+  Widget _buildEngineEvalWide() {
+    final rows = <(String, String)>[];
+    if (_engineRawInfo.isNotEmpty) {
+      rows.addAll([
+        ('Eval (cp)', (_engineRawInfo['eval_cp'] ?? '-').toString()),
+        ('Depth', (_engineRawInfo['depth'] ?? '-').toString()),
+        (
+          'Time (s)',
+          ((_engineRawInfo['time_ms'] as int? ?? 0) / 1000.0).toStringAsFixed(
+            2,
+          ),
+        ),
+        ('Nodes', (_engineRawInfo['nodes'] ?? '-').toString()),
+      ]);
+    }
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.textMuted.withValues(alpha: 0.1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'ENGINE EVALUATION',
+            style: AppTextStyles.labelSmall.copyWith(
+              letterSpacing: 1.2,
+              color: AppColors.textMuted,
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (rows.isEmpty)
             Expanded(
-              child: _gameState.moveHistory.isEmpty
-                  ? Center(
+              child: Center(
+                child: Text(
+                  'No data yet.',
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: AppColors.textMuted,
+                  ),
+                ),
+              ),
+            )
+          else
+            ...rows.map(
+              (r) => Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  children: [
+                    Expanded(
                       child: Text(
-                        'Moves will appear here',
+                        r.$1,
                         style: AppTextStyles.bodyMedium.copyWith(
                           color: AppColors.textMuted,
                         ),
                       ),
-                    )
-                  : ListView.builder(
-                      controller: _moveScrollController,
-                      itemCount: (_gameState.moveHistory.length + 1) ~/ 2,
-                      itemBuilder: (context, index) {
-                        final whiteMove = _gameState.moveHistory[index * 2];
-                        final blackMove =
-                            (index * 2 + 1 < _gameState.moveHistory.length)
-                            ? _gameState.moveHistory[index * 2 + 1]
-                            : null;
-                        final isLast =
-                            index ==
-                            (_gameState.moveHistory.length + 1) ~/ 2 - 1;
-                        return Container(
-                          padding: const EdgeInsets.symmetric(
-                            vertical: 3,
-                            horizontal: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: index % 2 == 0
-                                ? Colors.transparent
-                                : AppColors.surface.withValues(alpha: 0.3),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Row(
-                            children: [
-                              SizedBox(
-                                width: 28,
-                                child: Text(
-                                  '${index + 1}.',
-                                  style: AppTextStyles.bodySmall.copyWith(
-                                    color: AppColors.textMuted,
-                                  ),
-                                ),
-                              ),
-                              Expanded(
-                                child: Text(
-                                  whiteMove,
-                                  style: AppTextStyles.bodyMedium.copyWith(
-                                    color: isLast && blackMove == null
-                                        ? AppColors.primary
-                                        : AppColors.textPrimary,
-                                    fontWeight: isLast && blackMove == null
-                                        ? FontWeight.w600
-                                        : FontWeight.w400,
-                                  ),
-                                ),
-                              ),
-                              Expanded(
-                                child: Text(
-                                  blackMove ?? '',
-                                  style: AppTextStyles.bodyMedium.copyWith(
-                                    color: isLast && blackMove != null
-                                        ? AppColors.primary
-                                        : AppColors.textPrimary,
-                                    fontWeight: isLast && blackMove != null
-                                        ? FontWeight.w600
-                                        : FontWeight.w400,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEngineEvalSection() {
-    if (!widget.enableExplanation) {
-      return Expanded(
-        flex: 4,
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: AppColors.card,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: AppColors.textMuted.withValues(alpha: 0.1),
-            ),
-          ),
-          child: Center(
-            child: Text(
-              'AI explanation is turned off for this game.',
-              style: AppTextStyles.bodyMedium.copyWith(
-                color: AppColors.textMuted,
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    final hasExplanation =
-        _engineInfo.containsKey('explanation') &&
-        _engineInfo['explanation'] != null;
-
-    if (!hasExplanation) {
-      // Fallback empty view or older basic view
-      return Expanded(
-        flex: 4,
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: AppColors.card,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: AppColors.textMuted.withValues(alpha: 0.1),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '🤔 AI REASONING',
-                style: AppTextStyles.labelLarge.copyWith(
-                  letterSpacing: 1.5,
-                  fontSize: 12,
-                ),
-              ),
-              const Spacer(),
-              Center(
-                child: Text(
-                  _gameState.isEngineThinking
-                      ? 'Thinking...'
-                      : 'No explanation available.',
-                  style: AppTextStyles.bodyMedium.copyWith(
-                    color: AppColors.textMuted,
-                  ),
-                ),
-              ),
-              const Spacer(),
-            ],
-          ),
-        ),
-      );
-    }
-
-    final explanation = _engineInfo['explanation'] as Map<String, dynamic>;
-    final scoreCp = explanation['after_eval_cp'] as int? ?? 0;
-    final gamePhase = explanation['game_phase'] as String? ?? 'Middlegame';
-
-    // Formatted evaluation
-    String evalStr;
-    if (scoreCp.abs() >= 90000) {
-      final mateIn = (100000 - scoreCp.abs() + 1) ~/ 2;
-      evalStr = scoreCp > 0 ? '+M$mateIn' : '-M$mateIn';
-    } else {
-      final pawnUnits = scoreCp / 100.0;
-      evalStr = pawnUnits >= 0
-          ? '+${pawnUnits.toStringAsFixed(2)}'
-          : pawnUnits.toStringAsFixed(2);
-    }
-
-    return Expanded(
-      flex: 4,
-      child: Container(
-        width: double.infinity,
-        decoration: BoxDecoration(
-          color: AppColors.card,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.textMuted.withValues(alpha: 0.1)),
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Header
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  border: Border(
-                    bottom: BorderSide(
-                      color: AppColors.textMuted.withValues(alpha: 0.1),
-                    ),
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      '🤔 AI REASONING',
-                      style: AppTextStyles.labelLarge.copyWith(
-                        letterSpacing: 1.5,
-                        fontSize: 12,
-                        color: AppColors.textPrimary,
-                      ),
                     ),
                     Text(
-                      gamePhase.toUpperCase(),
-                      style: AppTextStyles.labelSmall.copyWith(
-                        color: AppColors.textMuted,
-                        letterSpacing: 1.0,
+                      r.$2,
+                      style: AppTextStyles.bodyMedium.copyWith(
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ],
                 ),
               ),
-
-              // Content Area
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.all(14),
-                  children: [
-                    // Top Eval Score & Depth
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          evalStr,
-                          style: AppTextStyles.displayMedium.copyWith(
-                            color: scoreCp >= 0
-                                ? Colors.greenAccent
-                                : Colors.redAccent,
-                            fontSize: 28,
-                            height: 1.0,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 3),
-                          child: Text(
-                            'Depth ${_engineInfo['depth'] ?? 0}',
-                            style: AppTextStyles.bodySmall.copyWith(
-                              color: AppColors.textMuted,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Bar Chart
-                    Text(
-                      'EVALUATION COMPONENTS',
-                      style: AppTextStyles.labelSmall.copyWith(
-                        color: AppColors.textMuted,
-                        letterSpacing: 1.0,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    _buildBreakdownChart(
-                      explanation['full_breakdown_after']
-                              as Map<String, dynamic>? ??
-                          {},
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Narrative
-                    Text(
-                      'WHY THIS MOVE?',
-                      style: AppTextStyles.labelSmall.copyWith(
-                        color: AppColors.textMuted,
-                        letterSpacing: 1.0,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    _buildNarrative(
-                      explanation['narrative'] as List<dynamic>? ?? [],
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Alternatives
-                    Text(
-                      'TOP ALTERNATIVES',
-                      style: AppTextStyles.labelSmall.copyWith(
-                        color: AppColors.textMuted,
-                        letterSpacing: 1.0,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    _buildAlternatives(
-                      _engineInfo['alternatives'] as List<dynamic>? ?? [],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBreakdownChart(Map<String, dynamic> bk) {
-    if (bk.isEmpty) return const SizedBox();
-
-    // Group the granular keys into major categories
-    int material =
-        (bk['material_mg_white'] ?? 0) +
-        (bk['material_eg_white'] ?? 0) -
-        (bk['material_mg_black'] ?? 0) -
-        (bk['material_eg_black'] ?? 0);
-    int pst =
-        (bk['pst_mg_white'] ?? 0) +
-        (bk['pst_eg_white'] ?? 0) -
-        (bk['pst_mg_black'] ?? 0) -
-        (bk['pst_eg_black'] ?? 0);
-    int structure =
-        (bk['doubled_pawns_mg'] ?? 0) +
-        (bk['doubled_pawns_eg'] ?? 0) +
-        (bk['isolated_pawns_mg'] ?? 0) +
-        (bk['isolated_pawns_eg'] ?? 0) +
-        (bk['passed_pawns_mg'] ?? 0) +
-        (bk['passed_pawns_eg'] ?? 0) +
-        (bk['connected_passers_eg'] ?? 0);
-    int kingSafety =
-        (bk['king_shield_mg'] ?? 0) + (bk['king_prox_passer_eg'] ?? 0);
-    int mobility =
-        (bk['rook_open_file_mg'] ?? 0) +
-        (bk['rook_open_file_eg'] ?? 0) +
-        (bk['rook_semi_open_mg'] ?? 0) +
-        (bk['rook_semi_open_eg'] ?? 0) +
-        (bk['bishop_pair_mg'] ?? 0) +
-        (bk['bishop_pair_eg'] ?? 0);
-    int tactical =
-        (bk['hanging_penalty_mg'] ?? 0) + (bk['hanging_penalty_eg'] ?? 0);
-
-    final isWhiteTurn = _gameState.board.turn == chess.Color.WHITE;
-    if (!isWhiteTurn) {
-      // The breakdown is stored absolute (White positive). If black just moved, negate to show from Black's perspective?
-      // Actually, standard AI panels always show absolute (White positive), so we'll keep it absolute, but colored.
-    }
-
-    Widget bar(String label, int val, Color color) {
-      // scale up slightly so small differences are visible, max 300cp
-      final widthFactor = (val.abs() / 300.0).clamp(0.0, 1.0);
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 70,
-              child: Text(
-                label,
-                style: AppTextStyles.bodySmall.copyWith(
-                  color: AppColors.textSecondary,
-                ),
-              ),
             ),
-            Expanded(
-              child: Stack(
-                alignment: val >= 0
-                    ? Alignment.centerLeft
-                    : Alignment.centerRight,
-                children: [
-                  Container(
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                  FractionallySizedBox(
-                    widthFactor: widthFactor.isNaN ? 0 : widthFactor,
-                    child: Container(
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: color,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            SizedBox(
-              width: 45,
-              child: Text(
-                '${val > 0 ? '+' : ''}${(val / 100.0).toStringAsFixed(1)}',
-                style: AppTextStyles.bodySmall.copyWith(
-                  color: val > 0
-                      ? Colors.greenAccent
-                      : (val < 0 ? Colors.redAccent : AppColors.textMuted),
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.right,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Column(
-      children: [
-        bar(
-          'Material',
-          material,
-          material >= 0 ? Colors.green.shade400 : Colors.red.shade400,
-        ),
-        bar(
-          'Position',
-          pst,
-          pst >= 0 ? Colors.green.shade400 : Colors.red.shade400,
-        ),
-        bar(
-          'Structure',
-          structure,
-          structure >= 0 ? Colors.green.shade300 : Colors.red.shade300,
-        ),
-        bar(
-          'King Safety',
-          kingSafety,
-          kingSafety >= 0 ? Colors.green.shade300 : Colors.red.shade300,
-        ),
-        bar(
-          'Activity',
-          mobility,
-          mobility >= 0 ? Colors.green.shade200 : Colors.red.shade200,
-        ),
-        bar(
-          'Tactics',
-          tactical,
-          tactical >= 0 ? Colors.green.shade200 : Colors.red.shade200,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildNarrative(List<dynamic> sentences) {
-    if (sentences.isEmpty) {
-      return Text(
-        "No narrative available.",
-        style: AppTextStyles.bodySmall.copyWith(color: AppColors.textMuted),
-      );
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: sentences.map((s) {
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 4),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '• ',
-                style: AppTextStyles.bodyMedium.copyWith(
-                  color: AppColors.primary,
-                ),
-              ),
-              Expanded(
-                child: Text(
-                  s.toString(),
-                  style: AppTextStyles.bodyMedium.copyWith(
-                    color: AppColors.textPrimary,
-                    height: 1.3,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _buildAlternatives(List<dynamic> alts) {
-    if (alts.isEmpty) {
-      return Text(
-        "No alternatives found.",
-        style: AppTextStyles.bodySmall.copyWith(color: AppColors.textMuted),
-      );
-    }
-
-    // Get current side to determine +/- formatting correctly actually evaluate returns absolute, so it's fine.
-    return Row(
-      children: alts.map((m) {
-        final uci = m['move_uci'] as String;
-        int cp = (m['eval_cp'] as num).toInt();
-
-        String evalStr;
-        if (cp.abs() >= 90000) {
-          final mateIn = (100000 - cp.abs() + 1) ~/ 2;
-          evalStr = cp > 0 ? '+M$mateIn' : '-M$mateIn';
-        } else {
-          final pawnUnits = cp / 100.0;
-          evalStr = pawnUnits >= 0
-              ? '+${pawnUnits.toStringAsFixed(1)}'
-              : pawnUnits.toStringAsFixed(1);
-        }
-
-        return Expanded(
-          child: Container(
-            margin: const EdgeInsets.only(right: 6),
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-            decoration: BoxDecoration(
-              color: AppColors.surface.withValues(alpha: 0.5),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: AppColors.textMuted.withValues(alpha: 0.1),
-              ),
-            ),
-            child: Column(
-              children: [
-                Text(
-                  uci,
-                  style: AppTextStyles.bodyMedium.copyWith(
-                    color: AppColors.textPrimary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  evalStr,
-                  style: AppTextStyles.bodySmall.copyWith(
-                    color: AppColors.textMuted,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _evalRow(String label, num value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: AppTextStyles.bodyMedium.copyWith(
-              color: AppColors.textSecondary,
-            ),
-          ),
-          Text(
-            value.toString(),
-            style: AppTextStyles.bodyMedium.copyWith(
-              color: AppColors.primary,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
         ],
       ),
     );
   }
 
-  Widget _buildActionButtons() {
+  Widget _buildPlaybackControls() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _pbBtn(
+          Icons.first_page,
+          _gameState.moveHistory.isNotEmpty ? _goToFirstMove : null,
+        ),
+        const SizedBox(width: 6),
+        _pbBtn(
+          Icons.chevron_left,
+          _reviewMoveIndex != 0 && _gameState.moveHistory.isNotEmpty
+              ? _goToPreviousMove
+              : null,
+        ),
+        const SizedBox(width: 6),
+        _pbBtn(Icons.chevron_right, _isReviewMode ? _goToNextMove : null),
+        const SizedBox(width: 6),
+        _pbBtn(Icons.last_page, _isReviewMode ? _goToLastMove : null),
+      ],
+    );
+  }
+
+  Widget _pbBtn(IconData icon, VoidCallback? onTap) {
+    final disabled = onTap == null;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 150),
+        opacity: disabled ? 0.3 : 1.0,
+        child: Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: AppColors.textMuted.withValues(alpha: 0.15),
+            ),
+          ),
+          child: Icon(icon, size: 18, color: AppColors.textPrimary),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWideActionButtons() {
     return Column(
       children: [
-        // Resign button
         if (!_gameState.isGameOver)
           SizedBox(
             width: double.infinity,
             child: OutlinedButton(
-              onPressed: _resign,
+              onPressed: _showResignDialog,
               style: OutlinedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
@@ -1753,7 +1839,7 @@ class _GameScreenState extends State<GameScreen> {
               ),
             ),
           ),
-        if (_gameState.isGameOver)
+        if (_gameState.isGameOver) ...[
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
@@ -1767,16 +1853,33 @@ class _GameScreenState extends State<GameScreen> {
               child: Text('New Game', style: AppTextStyles.button),
             ),
           ),
+          if (_gameState.moveHistory.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _openAnalysis,
+                icon: const Icon(Icons.analytics_outlined, size: 18),
+                label: Text('Analyze Game', style: AppTextStyles.button),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.accent,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
         const SizedBox(height: 8),
-        // Secondary actions row
         Row(
           children: [
             Expanded(
-              child: _smallActionButton(
-                icon: Icons.undo,
-                label: 'Undo',
-                onTap:
-                    _gameState.moveHistory.length >= 2 &&
+              child: _wideSmallBtn(
+                Icons.undo,
+                'Undo',
+                _gameState.moveHistory.length >= 2 &&
                         !_gameState.isEngineThinking
                     ? _undoMove
                     : null,
@@ -1784,10 +1887,10 @@ class _GameScreenState extends State<GameScreen> {
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: _smallActionButton(
-                icon: Icons.flip,
-                label: 'Flip',
-                onTap: () => setState(() => _boardFlipped = !_boardFlipped),
+              child: _wideSmallBtn(
+                Icons.flip,
+                'Flip',
+                () => setState(() => _boardFlipped = !_boardFlipped),
               ),
             ),
           ],
@@ -1796,17 +1899,13 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  Widget _smallActionButton({
-    required IconData icon,
-    required String label,
-    VoidCallback? onTap,
-  }) {
-    final isDisabled = onTap == null;
+  Widget _wideSmallBtn(IconData icon, String label, VoidCallback? onTap) {
+    final disabled = onTap == null;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedOpacity(
         duration: const Duration(milliseconds: 200),
-        opacity: isDisabled ? 0.3 : 1.0,
+        opacity: disabled ? 0.3 : 1.0,
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(

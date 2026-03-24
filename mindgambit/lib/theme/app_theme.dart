@@ -45,7 +45,7 @@ class AppTheme {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     ),
     iconTheme: const IconThemeData(color: AppColors.primary),
-    dialogBackgroundColor: AppColors.card,
+    dialogTheme: const DialogThemeData(backgroundColor: AppColors.card),
     bottomSheetTheme: const BottomSheetThemeData(
       backgroundColor: AppColors.card,
     ),

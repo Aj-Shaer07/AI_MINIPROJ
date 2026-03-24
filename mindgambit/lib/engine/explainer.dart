@@ -5,11 +5,190 @@ import 'evaluation.dart';
 class Explainer {
   static const int _openingPhase = 24;
   static const int _endgamePhase = 8;
+  static const int _greatMoveThresholdCp = 130;
+  static const int _notGoodMoveThresholdCp = -90;
+  static const int _blunderThresholdCp = -180;
+
+  static const String keyBlunder = 'BLUNDER';
+  static const String keyNotGoodMove = 'NOT_GOOD_MOVE';
+  static const String keyGreatMove = 'GREAT_MOVE';
+  static const String keyNiceCapture = 'NICE_CAPTURE';
+  static const String keyCheck = 'CHECK';
+  static const String keyMate = 'MATE';
+
+  static const Set<String> _centerSquares = {'d4', 'e4', 'd5', 'e5'};
+
+  static String _pieceName(chess.PieceType pieceType) {
+    switch (pieceType) {
+      case chess.PieceType.KING:
+        return 'king';
+      case chess.PieceType.QUEEN:
+        return 'queen';
+      case chess.PieceType.ROOK:
+        return 'rook';
+      case chess.PieceType.BISHOP:
+        return 'bishop';
+      case chess.PieceType.KNIGHT:
+        return 'knight';
+      case chess.PieceType.PAWN:
+        return 'pawn';
+    }
+    return 'piece';
+  }
+
+  static bool _isDevelopmentOrCenterMove(
+    chess.Chess boardBefore,
+    chess.Move move,
+  ) {
+    final piece = boardBefore.get(move.fromAlgebraic);
+    if (piece == null) return false;
+
+    if (_centerSquares.contains(move.toAlgebraic)) return true;
+    if (piece.type == chess.PieceType.KNIGHT ||
+        piece.type == chess.PieceType.BISHOP) {
+      return true;
+    }
+
+    // Reward center pawns in the opening.
+    if (piece.type == chess.PieceType.PAWN) {
+      return move.toAlgebraic == 'd4' ||
+          move.toAlgebraic == 'e4' ||
+          move.toAlgebraic == 'd5' ||
+          move.toAlgebraic == 'e5';
+    }
+    return false;
+  }
+
+  /// Smart Coach: analyze the player's move with qualitative guidance.
+  /// Returns null when no strong coaching signal is found.
+  static Map<String, dynamic>? analyzeMove(
+    chess.Chess boardBefore,
+    chess.Chess boardAfter,
+    chess.Move move,
+    int prevEval,
+    int currEval, {
+    String? bestMoveSan,
+  }) {
+    final moverIsWhite = boardBefore.turn == chess.Color.WHITE;
+    final sign = moverIsWhite ? 1 : -1;
+    final delta = (currEval - prevEval) * sign;
+
+    final movedPiece = boardBefore.get(move.fromAlgebraic);
+    final capturedPiece = boardBefore.get(move.toAlgebraic);
+    final isOpening = boardBefore.move_number <= 8;
+
+    if (boardAfter.in_checkmate) {
+      return {
+        'key': keyMate,
+        'text': 'Checkmate. The game is yours.',
+        'piece': 'n',
+      };
+    }
+
+    if (delta <= _blunderThresholdCp) {
+      final hadWinningEval = prevEval * sign >= 90000;
+      final droppedMajor =
+          capturedPiece != null && _pieceValue(capturedPiece.type) >= 500;
+
+      String text;
+      if (hadWinningEval) {
+        text = bestMoveSan != null
+            ? 'You had a forced win. Better was $bestMoveSan to finish the attack.'
+            : 'You had a forced win and let it slip. Look for forcing checks first.';
+      } else if (droppedMajor) {
+        final name = _pieceName(capturedPiece.type);
+        text = bestMoveSan != null
+            ? 'Oops, that drops material. Better was $bestMoveSan to stay safe.'
+            : 'Oops, that drops your $name. Try to protect loose pieces before attacking.';
+      } else {
+        text = bestMoveSan != null
+            ? 'Oops, that move drops your advantage. A stronger continuation was $bestMoveSan.'
+            : 'Oops, that move drops your advantage. Look for a safer continuation.';
+      }
+
+      return {'key': keyBlunder, 'text': text, 'piece': 'n'};
+    }
+
+    if (delta <= _notGoodMoveThresholdCp) {
+      final text = bestMoveSan != null
+          ? 'Not the best move. You missed a stronger continuation: $bestMoveSan.'
+          : 'Not the best move. You missed a stronger continuation.';
+      return {'key': keyNotGoodMove, 'text': text, 'piece': 'n'};
+    }
+
+    if (delta >= _greatMoveThresholdCp) {
+      final text = boardAfter.in_check
+          ? 'Great tactical find. Your move creates serious pressure on the king.'
+          : 'Excellent move. You improved your position in a meaningful way.';
+      return {'key': keyGreatMove, 'text': text, 'piece': 'n'};
+    }
+
+    if (capturedPiece != null && _pieceValue(capturedPiece.type) >= 500) {
+      return {
+        'key': keyNiceCapture,
+        'text':
+            'A tasty ${_pieceName(capturedPiece.type)} you got there. Nice tactical pickup.',
+        'piece': movedPiece?.type == chess.PieceType.KNIGHT ? 'n' : 'n',
+      };
+    }
+
+    if (boardAfter.in_check) {
+      return {
+        'key': keyCheck,
+        'text': 'Good forcing check. Keep limiting the king\'s escape squares.',
+        'piece': 'n',
+      };
+    }
+
+    if (isOpening && _isDevelopmentOrCenterMove(boardBefore, move)) {
+      return {
+        'key': 'DEVELOPMENT',
+        'text': 'Good development. Controlling the center early is key.',
+        'piece': 'n',
+      };
+    }
+
+    return null;
+  }
 
   static String _getPhaseName(int phaseValue) {
     if (phaseValue >= _openingPhase - 4) return "Opening";
     if (phaseValue <= _endgamePhase) return "Endgame";
     return "Middlegame";
+  }
+
+  static int _pieceValue(chess.PieceType pieceType) {
+    switch (pieceType) {
+      case chess.PieceType.QUEEN:
+        return 900;
+      case chess.PieceType.ROOK:
+        return 500;
+      case chess.PieceType.BISHOP:
+      case chess.PieceType.KNIGHT:
+        return 300;
+      case chess.PieceType.PAWN:
+        return 100;
+      case chess.PieceType.KING:
+        return 0;
+    }
+    return 0;
+  }
+
+  static String? analyzeMoveKey({
+    required int deltaCp,
+    required bool givesCheck,
+    required bool givesMate,
+    required chess.PieceType? capturedPiece,
+  }) {
+    if (givesMate) return keyMate;
+    if (deltaCp <= _blunderThresholdCp) return keyBlunder;
+    if (deltaCp <= _notGoodMoveThresholdCp) return keyNotGoodMove;
+    if (deltaCp >= _greatMoveThresholdCp) return keyGreatMove;
+    if (capturedPiece != null && _pieceValue(capturedPiece) >= 500) {
+      return keyNiceCapture;
+    }
+    if (givesCheck) return keyCheck;
+    return null;
   }
 
   /// Generates a human-readable summary of the current board evaluation.
@@ -145,8 +324,10 @@ class Explainer {
     if (captured != null) tags.add("capture");
 
     board.move(move);
-    if (board.in_check) tags.add("check");
-    if (board.in_checkmate) tags.add("checkmate");
+    final givesCheck = board.in_check;
+    final givesMate = board.in_checkmate;
+    if (givesCheck) tags.add("check");
+    if (givesMate) tags.add("checkmate");
     board.undo();
 
     if (move.promotion != null) tags.add("promotion");
@@ -171,6 +352,13 @@ class Explainer {
       isWhite,
     );
 
+    final explanationKey = analyzeMoveKey(
+      deltaCp: deltaCp,
+      givesCheck: givesCheck,
+      givesMate: givesMate,
+      capturedPiece: captured?.type,
+    );
+
     return {
       "move_uci":
           '${move.fromAlgebraic}${move.toAlgebraic}${move.promotion?.name ?? ""}',
@@ -182,6 +370,7 @@ class Explainer {
       "move_tags": tags,
       "breakdown_delta": bkDelta,
       "narrative": narrative,
+      "explanation_key": explanationKey,
       "full_breakdown_after": aBk,
     };
   }

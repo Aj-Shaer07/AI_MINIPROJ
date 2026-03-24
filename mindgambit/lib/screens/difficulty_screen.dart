@@ -5,7 +5,7 @@ import '../models/difficulty.dart';
 import '../models/timer_option.dart';
 import '../core/app_router.dart';
 
-/// Difficulty selection screen with level cards and color picker.
+/// Difficulty / bot selection screen matching the "Choose Your Opponent" screenshot.
 class DifficultyScreen extends StatefulWidget {
   const DifficultyScreen({super.key});
 
@@ -17,7 +17,7 @@ class _DifficultyScreenState extends State<DifficultyScreen> {
   Difficulty _selected = Difficulty.medium;
   bool _playAsWhite = true;
   TimerOption _timerOption = TimerOption.fiveMin;
-  bool _enableExplanation = true;
+  bool _enableCoachMode = false;
 
   @override
   Widget build(BuildContext context) {
@@ -26,180 +26,175 @@ class _DifficultyScreenState extends State<DifficultyScreen> {
         decoration: const BoxDecoration(gradient: AppColors.backgroundGradient),
         child: SafeArea(
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Header
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                child: Row(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(
-                        Icons.arrow_back_ios,
-                        color: AppColors.textPrimary,
+                    Row(
+                      children: [
+                        GestureDetector(
+                          onTap: () => Navigator.pop(context),
+                          child: Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: AppColors.surface,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: AppColors.textMuted.withValues(alpha: 0.2),
+                              ),
+                            ),
+                            child: const Icon(
+                              Icons.arrow_back_ios_new,
+                              size: 16,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        // Progress indicator dots
+                        Row(
+                          children: [
+                            Container(
+                              width: 10,
+                              height: 10,
+                              decoration: BoxDecoration(
+                                color: AppColors.primary,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            Container(
+                              width: 32,
+                              height: 3,
+                              margin: const EdgeInsets.symmetric(horizontal: 4),
+                              color: AppColors.primary,
+                            ),
+                            Container(
+                              width: 10,
+                              height: 10,
+                              decoration: BoxDecoration(
+                                color: AppColors.primary,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Choose Your Opponent',
+                      style: AppTextStyles.headlineLarge.copyWith(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
-                    Expanded(
-                      child: Text(
-                        'Choose Difficulty',
-                        style: AppTextStyles.headlineLarge,
-                        textAlign: TextAlign.center,
+                    const SizedBox(height: 4),
+                    Text(
+                      'Select a bot to play against. Each plays at a different skill level.',
+                      style: AppTextStyles.bodyMedium.copyWith(
+                        color: AppColors.textMuted,
                       ),
                     ),
-                    const SizedBox(width: 48),
                   ],
                 ),
               ),
 
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
 
-              // Difficulty cards
+              // Bot cards
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Column(
                     children: [
-                      ...Difficulty.values.map((d) => _buildDifficultyCard(d)),
+                      ...Difficulty.values.map((d) => _buildBotCard(d)),
 
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 20),
 
-                      // Explanation toggle
-                      Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          gradient: AppColors.cardGradient,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: AppColors.primary.withValues(alpha: 0.1),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.lightbulb_outline,
-                              color: AppColors.primary,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'AI Explanation',
-                                    style: AppTextStyles.titleMedium,
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    'Show short reasoning popup in portrait mode.',
-                                    style: AppTextStyles.bodySmall.copyWith(
-                                      color: AppColors.textMuted,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Switch(
-                              value: _enableExplanation,
-                              onChanged: (value) {
-                                setState(() => _enableExplanation = value);
-                              },
-                              activeColor: AppColors.primary,
-                            ),
-                          ],
-                        ),
+                      // Coach mode toggle
+                      _buildToggleCard(
+                        icon: Icons.lightbulb_outline,
+                        title: 'Coach Mode',
+                        subtitle: 'Get live feedback on every move you make.',
+                        value: _enableCoachMode,
+                        onChanged: (v) => setState(() => _enableCoachMode = v),
                       ),
 
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 12),
 
                       // Color selection
                       Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          gradient: AppColors.cardGradient,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: AppColors.primary.withValues(alpha: 0.1),
-                          ),
-                        ),
+                        padding: const EdgeInsets.all(16),
+                        decoration: _cardDecoration(),
                         child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text('Play as', style: AppTextStyles.titleMedium),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 12),
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                _buildColorButton(true, '♔', 'White'),
-                                const SizedBox(width: 20),
-                                _buildColorButton(false, '♚', 'Black'),
+                                Expanded(
+                                  child: _buildColorButton(true, '♔', 'White'),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: _buildColorButton(false, '♚', 'Black'),
+                                ),
                               ],
                             ),
                           ],
                         ),
                       ),
 
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 12),
 
                       // Timer selection
                       Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          gradient: AppColors.cardGradient,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: AppColors.primary.withValues(alpha: 0.1),
-                          ),
-                        ),
+                        padding: const EdgeInsets.all(16),
+                        decoration: _cardDecoration(),
                         child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              'Time Control',
-                              style: AppTextStyles.titleMedium,
-                            ),
-                            const SizedBox(height: 16),
+                            Text('Time Control', style: AppTextStyles.titleMedium),
+                            const SizedBox(height: 12),
                             SingleChildScrollView(
                               scrollDirection: Axis.horizontal,
                               child: Row(
                                 children: TimerOption.values.map((t) {
                                   final isSelected = _timerOption == t;
-                                  return Padding(
-                                    padding: const EdgeInsets.only(right: 8),
-                                    child: GestureDetector(
-                                      onTap: () =>
-                                          setState(() => _timerOption = t),
-                                      child: AnimatedContainer(
-                                        duration: const Duration(
-                                          milliseconds: 200,
-                                        ),
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 16,
-                                          vertical: 10,
-                                        ),
-                                        decoration: BoxDecoration(
+                                  return GestureDetector(
+                                    onTap: () => setState(() => _timerOption = t),
+                                    child: AnimatedContainer(
+                                      duration: const Duration(milliseconds: 200),
+                                      margin: const EdgeInsets.only(right: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 10,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: isSelected
+                                            ? AppColors.primary.withValues(alpha: 0.15)
+                                            : AppColors.surface,
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(
                                           color: isSelected
-                                              ? AppColors.primary.withValues(
-                                                  alpha: 0.15,
-                                                )
-                                              : AppColors.surface,
-                                          borderRadius: BorderRadius.circular(
-                                            12,
-                                          ),
-                                          border: Border.all(
-                                            color: isSelected
-                                                ? AppColors.primary
-                                                : AppColors.textMuted
-                                                      .withValues(alpha: 0.2),
-                                            width: isSelected ? 2 : 1,
-                                          ),
+                                              ? AppColors.primary
+                                              : AppColors.textMuted.withValues(alpha: 0.2),
+                                          width: isSelected ? 1.5 : 1,
                                         ),
-                                        child: Text(
-                                          t.label,
-                                          style: AppTextStyles.bodySmall
-                                              .copyWith(
-                                                color: isSelected
-                                                    ? AppColors.primary
-                                                    : AppColors.textMuted,
-                                                fontWeight: FontWeight.w600,
-                                              ),
+                                      ),
+                                      child: Text(
+                                        t.label,
+                                        style: AppTextStyles.bodySmall.copyWith(
+                                          color: isSelected
+                                              ? AppColors.primary
+                                              : AppColors.textMuted,
+                                          fontWeight: FontWeight.w600,
                                         ),
                                       ),
                                     ),
@@ -211,9 +206,9 @@ class _DifficultyScreenState extends State<DifficultyScreen> {
                         ),
                       ),
 
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 20),
 
-                      // Start Game button
+                      // Start button
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
@@ -221,14 +216,14 @@ class _DifficultyScreenState extends State<DifficultyScreen> {
                           style: ElevatedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 18),
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
+                              borderRadius: BorderRadius.circular(14),
                             ),
                           ),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const Icon(Icons.sports_esports, size: 24),
-                              const SizedBox(width: 8),
+                              const Icon(Icons.sports_esports, size: 22),
+                              const SizedBox(width: 10),
                               Text('START GAME', style: AppTextStyles.button),
                             ],
                           ),
@@ -247,51 +242,54 @@ class _DifficultyScreenState extends State<DifficultyScreen> {
     );
   }
 
-  Widget _buildDifficultyCard(Difficulty diff) {
+  BoxDecoration _cardDecoration({bool selected = false}) {
+    return BoxDecoration(
+      color: selected
+          ? AppColors.primary.withValues(alpha: 0.08)
+          : AppColors.card,
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(
+        color: selected
+            ? AppColors.primary
+            : AppColors.textMuted.withValues(alpha: 0.12),
+        width: selected ? 1.5 : 1,
+      ),
+      boxShadow: selected
+          ? [
+              BoxShadow(
+                color: AppColors.primary.withValues(alpha: 0.15),
+                blurRadius: 12,
+              ),
+            ]
+          : null,
+    );
+  }
+
+  Widget _buildBotCard(Difficulty diff) {
     final isSelected = _selected == diff;
     return GestureDetector(
       onTap: () => setState(() => _selected = diff),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          gradient: isSelected ? AppColors.cardGradient : null,
-          color: isSelected ? null : AppColors.card.withValues(alpha: 0.5),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isSelected
-                ? AppColors.primary
-                : AppColors.textMuted.withValues(alpha: 0.1),
-            width: isSelected ? 2 : 1,
-          ),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: AppColors.primary.withValues(alpha: 0.2),
-                    blurRadius: 12,
-                  ),
-                ]
-              : null,
-        ),
+        duration: const Duration(milliseconds: 250),
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        decoration: _cardDecoration(selected: isSelected),
         child: Row(
           children: [
+            // Emoji avatar
             Container(
-              width: 48,
-              height: 48,
+              width: 44,
+              height: 44,
               decoration: BoxDecoration(
-                color: isSelected
-                    ? AppColors.primary.withValues(alpha: 0.2)
-                    : AppColors.surface,
-                borderRadius: BorderRadius.circular(12),
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(
-                diff.icon,
-                color: isSelected ? AppColors.primary : AppColors.textMuted,
-                size: 24,
+              child: Center(
+                child: Text(diff.emoji, style: const TextStyle(fontSize: 24)),
               ),
             ),
-            const SizedBox(width: 16),
+            const SizedBox(width: 14),
+            // Labels
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -299,34 +297,135 @@ class _DifficultyScreenState extends State<DifficultyScreen> {
                   Text(
                     diff.label,
                     style: AppTextStyles.titleMedium.copyWith(
-                      color: isSelected
-                          ? AppColors.primary
-                          : AppColors.textPrimary,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
+                  const SizedBox(height: 3),
+                  Row(
+                    children: [
+                      _eloChip('Elo ${diff.elo}'),
+                      const SizedBox(width: 8),
+                      _depthChip('Depth ${diff.depth}'),
+                    ],
+                  ),
                   const SizedBox(height: 4),
-                  Text(diff.description, style: AppTextStyles.bodySmall),
+                  Text(
+                    diff.description,
+                    style: AppTextStyles.bodySmall.copyWith(
+                      color: AppColors.textMuted,
+                    ),
+                  ),
                 ],
               ),
             ),
+            // Arrow icon
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              width: 32,
+              height: 32,
               decoration: BoxDecoration(
                 color: isSelected
                     ? AppColors.primary.withValues(alpha: 0.15)
-                    : AppColors.surface,
-                borderRadius: BorderRadius.circular(8),
+                    : Colors.transparent,
+                shape: BoxShape.circle,
               ),
-              child: Text(
-                'D${diff.depth}',
-                style: AppTextStyles.bodySmall.copyWith(
-                  color: isSelected ? AppColors.primary : AppColors.textMuted,
-                  fontWeight: FontWeight.w700,
-                ),
+              child: Icon(
+                Icons.play_arrow,
+                size: 20,
+                color: isSelected
+                    ? AppColors.primary
+                    : AppColors.textMuted.withValues(alpha: 0.4),
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _eloChip(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: AppTextStyles.bodySmall.copyWith(
+          color: AppColors.primary,
+          fontWeight: FontWeight.w700,
+          fontSize: 11,
+        ),
+      ),
+    );
+  }
+
+  Widget _depthChip(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: AppTextStyles.bodySmall.copyWith(
+          color: AppColors.textSecondary,
+          fontWeight: FontWeight.w600,
+          fontSize: 11,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildToggleCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: _cardDecoration(),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: value
+                  ? AppColors.primary.withValues(alpha: 0.15)
+                  : AppColors.surface,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              icon,
+              color: value ? AppColors.primary : AppColors.textMuted,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: AppTextStyles.titleMedium),
+                Text(
+                  subtitle,
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: AppColors.textMuted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            activeColor: AppColors.primary,
+          ),
+        ],
       ),
     );
   }
@@ -337,23 +436,22 @@ class _DifficultyScreenState extends State<DifficultyScreen> {
       onTap: () => setState(() => _playAsWhite = isWhite),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        width: 100,
-        padding: const EdgeInsets.symmetric(vertical: 16),
+        padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
           color: isSelected
               ? AppColors.primary.withValues(alpha: 0.15)
               : AppColors.surface,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isSelected
                 ? AppColors.primary
                 : AppColors.textMuted.withValues(alpha: 0.2),
-            width: isSelected ? 2 : 1,
+            width: isSelected ? 1.5 : 1,
           ),
         ),
         child: Column(
           children: [
-            Text(symbol, style: const TextStyle(fontSize: 36)),
+            Text(symbol, style: const TextStyle(fontSize: 32)),
             const SizedBox(height: 4),
             Text(
               label,
@@ -376,7 +474,7 @@ class _DifficultyScreenState extends State<DifficultyScreen> {
         'difficulty': _selected,
         'playerIsWhite': _playAsWhite,
         'timerSeconds': _timerOption.seconds,
-        'enableExplanation': _enableExplanation,
+        'enableCoachMode': _enableCoachMode,
       },
     );
   }
