@@ -214,6 +214,26 @@ KING_SHIELD_BONUS = 10
 # Hanging piece penalty
 HANGING_PENALTY_RATIO = 0.5
 
+# ─────────────────────────────────────────────────────────
+# AUTO-LOAD TUNED WEIGHTS (from Texel Tuning)
+# If algorithms/tuned_weights.py exists, override defaults
+# ─────────────────────────────────────────────────────────
+try:
+    from algorithms.tuned_weights import *  # noqa: F401,F403
+    # Rebuild PST dictionaries with tuned tables
+    MG_PST = {
+        chess.PAWN: MG_PAWN_TABLE, chess.KNIGHT: MG_KNIGHT_TABLE,
+        chess.BISHOP: MG_BISHOP_TABLE, chess.ROOK: MG_ROOK_TABLE,
+        chess.QUEEN: MG_QUEEN_TABLE, chess.KING: MG_KING_TABLE,
+    }
+    EG_PST = {
+        chess.PAWN: EG_PAWN_TABLE, chess.KNIGHT: EG_KNIGHT_TABLE,
+        chess.BISHOP: EG_BISHOP_TABLE, chess.ROOK: EG_ROOK_TABLE,
+        chess.QUEEN: EG_QUEEN_TABLE, chess.KING: EG_KING_TABLE,
+    }
+except ImportError:
+    pass  # use hardcoded defaults above
+
 
 # ─────────────────────────────────────────────────────────
 # MAIN EVALUATION

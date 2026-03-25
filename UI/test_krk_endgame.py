@@ -66,6 +66,9 @@ def main():
     print(f"[{args.type.upper()} Test] You play Black (lone param King). Engine plays White.")
     print(f"[{args.type.upper()} Test] The engine should be able to force checkmate.\n")
 
+    # Clear sys.argv so the UI main doesn't try to parse our arguments
+    sys.argv = [sys.argv[0]]
+
     # Launch the full pygame UI with this position.
     # human_color='black' → engine plays White (engine_is_black=False)
     import main as ui_main

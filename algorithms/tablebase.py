@@ -79,10 +79,6 @@ def tablebase_move_for_root(board: chess.Board):
     for move in board.legal_moves:
         board.push(move)
         try:
-            # Skip moves that cause repetition — never repeat positions
-            if board.is_repetition(2):
-                continue
-
             child_wdl = _tablebase.get_wdl(board, default=None)
             if child_wdl is None:
                 continue

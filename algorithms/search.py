@@ -108,17 +108,6 @@ def negamax(board, depth, alpha, beta, ply, check_ext_used, stats,
     # ── Repetition draw ──
     # Don't return early at the root (ply == 0) to ensure we always return a move.
     if ply > 0 and board.is_repetition(2):
-        # In positions with a big material advantage, penalise repetition
-        # instead of treating it as a draw (0). Without this, the engine
-        # may endlessly repeat moves in KBN/KBB endgames.
-        from algorithms.evaluation import _count_material, PIECE_VALUES
-        w_mat = _count_material(board, True)   # chess.WHITE = True
-        b_mat = _count_material(board, False)  # chess.BLACK = False
-        mat_diff = w_mat - b_mat
-        if abs(mat_diff) >= 200:
-            # Side with advantage gets a penalty for repeating
-            # (from this side's negamax perspective)
-            return -500, None
         return 0, None
 
     # ── TT probe ──
