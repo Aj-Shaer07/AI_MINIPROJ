@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:chess/chess.dart' as chess;
 import '../theme/app_colors.dart';
@@ -45,6 +46,10 @@ class _GameScreenState extends State<GameScreen> {
   bool _boardFlipped = false;
   Map<String, dynamic> _engineRawInfo = {};
   final ScrollController _moveScrollController = ScrollController();
+  String? _premoveFrom;
+  String? _premoveTo;
+  DateTime? _lastTick;
+  double _tickRemainderMs = 0;
 
   // ── Coach state (persistent, not timed) ──────────────
   Map<String, dynamic>? _lastCoachData; // {key, text, bestSan}
@@ -94,18 +99,31 @@ class _GameScreenState extends State<GameScreen> {
   // ──────────────────────────────────────────────────────
   void _startClock() {
     _clockTimer?.cancel();
-    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+    _lastTick = DateTime.now();
+    _tickRemainderMs = 0;
+    _clockTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
       if (_gameState.isGameOver) return;
+      final now = DateTime.now();
+      final last = _lastTick ?? now;
+      final elapsedMs = now.difference(last).inMilliseconds.toDouble();
+      _lastTick = now;
+      if (elapsedMs <= 0) return;
+
+      _tickRemainderMs += elapsedMs;
+      int wholeSeconds = (_tickRemainderMs ~/ 1000);
+      _tickRemainderMs = _tickRemainderMs % 1000;
+      if (wholeSeconds <= 0) return;
+
       setState(() {
         if (_gameState.board.turn == chess.Color.WHITE) {
-          _whiteTimeLeft--;
+          _whiteTimeLeft -= wholeSeconds;
           if (_whiteTimeLeft <= 0) {
             _whiteTimeLeft = 0;
             _clockTimer?.cancel();
             _showTimeoutDialog(isWhite: true);
           }
         } else {
-          _blackTimeLeft--;
+          _blackTimeLeft -= wholeSeconds;
           if (_blackTimeLeft <= 0) {
             _blackTimeLeft = 0;
             _clockTimer?.cancel();
@@ -168,8 +186,7 @@ class _GameScreenState extends State<GameScreen> {
   // Move Logic
   // ──────────────────────────────────────────────────────
   void _onSquareTapped(int squareIndex) {
-    if (_gameState.isGameOver || _gameState.isEngineThinking) return;
-    if (!_gameState.isPlayerTurn) return;
+    if (_gameState.isGameOver) return;
     if (_hasTimer &&
         ((_gameState.board.turn == chess.Color.WHITE && _whiteTimeLeft <= 0) ||
             (_gameState.board.turn == chess.Color.BLACK &&
@@ -179,6 +196,12 @@ class _GameScreenState extends State<GameScreen> {
 
     final sqName = _indexToAlgebraic(squareIndex);
     final piece = _gameState.board.get(sqName);
+
+    // If it's not the player's turn, treat taps as premove planning.
+    if (!_gameState.isPlayerTurn || _gameState.isEngineThinking) {
+      _handlePremoveTap(squareIndex, sqName, piece);
+      return;
+    }
 
     if (_selectedSquare != null) {
       final fromSq = _indexToAlgebraic(_selectedSquare!);
@@ -201,6 +224,8 @@ class _GameScreenState extends State<GameScreen> {
           _selectedSquare = null;
           _legalMoves = [];
           _reviewMoveIndex = null;
+          _premoveFrom = null;
+          _premoveTo = null;
         });
         return;
       }
@@ -218,6 +243,40 @@ class _GameScreenState extends State<GameScreen> {
         _selectSquare(squareIndex);
       }
     }
+  }
+
+  void _handlePremoveTap(int squareIndex, String sqName, chess.Piece? piece) {
+    final isPlayersPiece =
+        piece != null &&
+        ((piece.color == chess.Color.WHITE && _gameState.playerIsWhite) ||
+            (piece.color == chess.Color.BLACK && !_gameState.playerIsWhite));
+
+    // First tap must be one of the player's pieces.
+    if (_premoveFrom == null) {
+      if (!isPlayersPiece) return;
+      setState(() {
+        _premoveFrom = sqName;
+        _premoveTo = null;
+        _selectedSquare = squareIndex;
+        _legalMoves = [];
+      });
+      return;
+    }
+
+    // Second tap sets destination; allow tapping same square to cancel.
+    if (_premoveFrom == sqName) {
+      setState(() {
+        _premoveFrom = null;
+        _premoveTo = null;
+        _selectedSquare = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _premoveTo = sqName;
+      _selectedSquare = null;
+    });
   }
 
   void _selectSquare(int squareIndex) {
@@ -290,6 +349,11 @@ class _GameScreenState extends State<GameScreen> {
   void _executeMove(chess.Move move) {
     final boardBefore = chess.Chess.fromFEN(_gameState.board.fen);
     final prevEval = evaluate(boardBefore);
+    // Clear any pending premove once we make an actual move.
+    _premoveFrom = null;
+    _premoveTo = null;
+    _lastTick = DateTime.now();
+    _tickRemainderMs = 0;
 
     // Track captures
     final captured = _gameState.board.get(move.toAlgebraic);
@@ -480,6 +544,9 @@ class _GameScreenState extends State<GameScreen> {
 
     Future.delayed(const Duration(milliseconds: 100), () async {
       try {
+        final engineTurnIsWhite = _gameState.board.turn == chess.Color.WHITE;
+        final engineThinkStart = DateTime.now();
+
         final result = await ChessEngine.findBestMove(
           fen: _gameState.board.fen,
           difficulty: _gameState.difficulty,
@@ -536,6 +603,38 @@ class _GameScreenState extends State<GameScreen> {
             _gameState.board.move(move);
             _gameState.moveHistory.add(san);
             _gameState.moveHistoryObjects.add(move);
+
+            // On web, heavy engine work can block UI; reconcile elapsed time so clocks stay accurate.
+            if (kIsWeb && _hasTimer) {
+              final elapsedSec = DateTime.now()
+                  .difference(engineThinkStart)
+                  .inSeconds;
+              if (elapsedSec > 0) {
+                if (engineTurnIsWhite) {
+                  _whiteTimeLeft = (_whiteTimeLeft - elapsedSec).clamp(
+                    0,
+                    99999,
+                  );
+                  if (_whiteTimeLeft <= 0) {
+                    _whiteTimeLeft = 0;
+                    _gameState.isEngineThinking = false;
+                    _showTimeoutDialog(isWhite: true);
+                    return;
+                  }
+                } else {
+                  _blackTimeLeft = (_blackTimeLeft - elapsedSec).clamp(
+                    0,
+                    99999,
+                  );
+                  if (_blackTimeLeft <= 0) {
+                    _blackTimeLeft = 0;
+                    _gameState.isEngineThinking = false;
+                    _showTimeoutDialog(isWhite: false);
+                    return;
+                  }
+                }
+              }
+            }
 
             // Coach for engine move
             String? engineCategory;
@@ -596,8 +695,11 @@ class _GameScreenState extends State<GameScreen> {
                 'nodes': result.nodes,
               };
               _gameState.isEngineThinking = false;
+              _lastTick = DateTime.now();
+              _tickRemainderMs = 0;
             });
             _scrollMoveHistory();
+            _tryExecutePremoveIfReady();
             if (_gameState.isGameOver) _showGameOverDialog();
           } else {
             setState(() => _gameState.isEngineThinking = false);
@@ -622,6 +724,31 @@ class _GameScreenState extends State<GameScreen> {
         );
       }
     });
+  }
+
+  void _tryExecutePremoveIfReady() {
+    if (_premoveFrom == null || _premoveTo == null) return;
+    if (!_gameState.isPlayerTurn || _gameState.isEngineThinking) return;
+
+    final move = _gameState.board
+        .generate_moves()
+        .where(
+          (m) => m.fromAlgebraic == _premoveFrom && m.toAlgebraic == _premoveTo,
+        )
+        .firstOrNull;
+
+    setState(() {
+      _selectedSquare = null;
+    });
+
+    if (move != null) {
+      _premoveFrom = null;
+      _premoveTo = null;
+      _executeMove(move);
+    } else {
+      _premoveFrom = null;
+      _premoveTo = null;
+    }
   }
 
   // ──────────────────────────────────────────────────────
@@ -786,6 +913,9 @@ class _GameScreenState extends State<GameScreen> {
       _engineRawInfo = {};
       _lastCoachData = null;
       _reviewMoveIndex = null;
+      _premoveFrom = null;
+      _premoveTo = null;
+      _lastTick = DateTime.now();
       _whiteTimeLeft = widget.timerSeconds;
       _blackTimeLeft = widget.timerSeconds;
     });

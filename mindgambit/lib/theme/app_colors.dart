@@ -10,10 +10,10 @@ class AppColors {
   static const Color surfaceLight = Color(0xFF222222);
   static const Color card = Color(0xFF1E1E1E);
 
-  // Accents
-  static const Color primary = Color(0xFFE2B714); // Gold
-  static const Color primaryLight = Color(0xFFF5D565);
-  static const Color secondary = Color(0xFFFF6B35); // Warm orange
+  // Accents (shifted to green theme)
+  static const Color primary = Color(0xFF52C98A); // Fresh green
+  static const Color primaryLight = Color(0xFF7FE3AE);
+  static const Color secondary = Color(0xFF2F9E6F); // Deep green accent
   static const Color accent = Color(0xFF00D4AA); // Teal green
 
   // Text
@@ -25,7 +25,7 @@ class AppColors {
   static const Color boardLight = Color(0xFFF0D9B5);
   static const Color boardDark = Color(0xFFB58863);
   static const Color boardHighlight = Color(0x6646B888);
-  static const Color boardLastMove = Color(0x44E2B714);
+  static const Color boardLastMove = Color(0x4452C98A);
   static const Color boardCheck = Color(0xFFE53E3E);
   static const Color moveDot = Color(0x5546B888);
   static const Color captureRing = Color(0x6646B888);
@@ -49,6 +49,6 @@ class AppColors {
   );
 
   static const LinearGradient goldGradient = LinearGradient(
-    colors: [Color(0xFFE2B714), Color(0xFFF5D565), Color(0xFFE2B714)],
+    colors: [Color(0xFF52C98A), Color(0xFF7FE3AE), Color(0xFF52C98A)],
   );
 }

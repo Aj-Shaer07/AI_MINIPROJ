@@ -4,7 +4,6 @@ import 'core/app_router.dart';
 import 'screens/home_screen.dart';
 import 'screens/difficulty_screen.dart';
 import 'screens/game_screen.dart';
-import 'screens/endgame_test_screen.dart';
 import 'models/difficulty.dart';
 
 class MindGambitApp extends StatelessWidget {
@@ -23,8 +22,6 @@ class MindGambitApp extends StatelessWidget {
             return MaterialPageRoute(builder: (_) => const HomeScreen());
           case AppRouter.difficulty:
             return MaterialPageRoute(builder: (_) => const DifficultyScreen());
-          case AppRouter.endgameTest:
-            return MaterialPageRoute(builder: (_) => const EndgameTestScreen());
           case AppRouter.game:
             final args = settings.arguments as Map<String, dynamic>;
             return MaterialPageRoute(

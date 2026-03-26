@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../core/app_router.dart';
+import '../core/constants.dart';
 
 /// Modern landing page matching the product hero screenshot style.
 class HomeScreen extends StatefulWidget {
@@ -133,32 +134,51 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   Expanded(
                     child: Center(
                       child: SingleChildScrollView(
-                        padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
                         child: ConstrainedBox(
                           constraints: const BoxConstraints(maxWidth: 980),
-                          child: LayoutBuilder(
-                            builder: (context, constraints) {
-                              final isWide = constraints.maxWidth > 820;
-                              return isWide
-                                  ? Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.center,
-                                      children: [
-                                        Expanded(child: _buildHeroText()),
-                                        const SizedBox(width: 36),
-                                        _buildBoardPreview(360),
-                                      ],
-                                    )
-                                  : Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        _buildHeroText(),
-                                        const SizedBox(height: 24),
-                                        Center(child: _buildBoardPreview(320)),
-                                      ],
-                                    );
-                            },
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              // Board at the top
+                              _buildBoardPreview(360),
+                              const SizedBox(height: 24),
+                              _buildHeroText(),
+                              const SizedBox(height: 28),
+                              // Primary CTA at the bottom
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  ElevatedButton(
+                                    onPressed: () {
+                                      Navigator.pushNamed(
+                                        context,
+                                        AppRouter.difficulty,
+                                      );
+                                    },
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF52C98A),
+                                      foregroundColor: const Color(0xFF0C2318),
+                                      elevation: 0,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 32,
+                                        vertical: 18,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(14),
+                                      ),
+                                    ),
+                                    child: Text(
+                                      'Start Game',
+                                      style: AppTextStyles.titleMedium.copyWith(
+                                        color: const Color(0xFF0C2318),
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -189,7 +209,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         ),
         const SizedBox(height: 18),
         ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 430),
+          constraints: const BoxConstraints(maxWidth: 540),
           child: Text(
             'Challenge our AI engine and sharpen your skills. Beautiful interface, smart opponent, real-time analysis.',
             style: AppTextStyles.titleLarge.copyWith(
@@ -198,62 +218,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               fontWeight: FontWeight.w500,
             ),
           ),
-        ),
-        const SizedBox(height: 28),
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: [
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pushNamed(context, AppRouter.difficulty);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF52C98A),
-                foregroundColor: const Color(0xFF0C2318),
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 30,
-                  vertical: 16,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              child: Text(
-                'Start Game',
-                style: AppTextStyles.titleMedium.copyWith(
-                  color: const Color(0xFF0C2318),
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-            OutlinedButton.icon(
-              onPressed: () {
-                Navigator.pushNamed(context, AppRouter.endgameTest);
-              },
-              icon: const Icon(Icons.science_outlined, size: 18),
-              label: Text(
-                'Endgame Tester',
-                style: AppTextStyles.titleMedium.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.accent,
-                side: BorderSide(
-                  color: AppColors.accent.withValues(alpha: 0.45),
-                ),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 14,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ],
         ),
       ],
     );
@@ -292,12 +256,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             final row = index ~/ 8;
             final col = index % 8;
             final isLight = (row + col).isEven;
-            final piece = _pieceAt(row, col);
-            final pieceColor = row <= 1
-                ? const Color(0xFF111111)
-                : row >= 6
-                ? const Color(0xFFEDE9DF)
-                : Colors.transparent;
+            final symbol = _pieceSymbol(row, col);
+            final isWhite = row >= 6;
+            final pieceColor = isWhite
+                ? const Color(0xFFFAF7EE)
+                : const Color(0xFF1B1B1B);
 
             return Container(
               color: isLight
@@ -305,11 +268,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   : const Color(0xFFB38963),
               child: Center(
                 child: Text(
-                  piece,
+                  symbol,
                   style: AppTextStyles.titleLarge.copyWith(
                     color: pieceColor,
                     fontWeight: FontWeight.w800,
-                    fontSize: 21,
+                    fontSize: 26,
                   ),
                 ),
               ),
@@ -320,12 +283,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  String _pieceAt(int row, int col) {
+  String _pieceSymbol(int row, int col) {
     const backRank = ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'];
-    if (row == 0) return backRank[col];
-    if (row == 1) return 'p';
-    if (row == 6) return 'P';
-    if (row == 7) return backRank[col].toUpperCase();
+    if (row == 0) return ChessPieces.getSymbol(backRank[col], false);
+    if (row == 1) return ChessPieces.blackPawn;
+    if (row == 6) return ChessPieces.whitePawn;
+    if (row == 7) return ChessPieces.getSymbol(backRank[col], true);
     return '';
   }
 }

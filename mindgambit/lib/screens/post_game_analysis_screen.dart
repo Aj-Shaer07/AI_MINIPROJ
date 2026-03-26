@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:chess/chess.dart' as chess;
 import '../theme/app_colors.dart';
@@ -276,56 +277,72 @@ class _PostGameAnalysisScreenState extends State<PostGameAnalysisScreen> {
 
   // ── Portrait Layout ─────────────────────────────────
   Widget _buildPortraitLayout() {
-    return Column(
-      children: [
-        // Board area with eval bar
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Eval bar
-              SizedBox(
-                width: 24,
-                child: AspectRatio(
-                  aspectRatio: 1 / 8,
-                  child: EvalBar(evalCp: _evalCp, isVertical: true),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth = constraints.maxWidth;
+        final maxHeight = constraints.maxHeight;
+        final boardSize = math.min(maxWidth - 48, maxHeight * 0.55);
+        final clampedBoardSize = boardSize.clamp(220.0, 520.0).toDouble();
+
+        return CustomScrollView(
+          slivers: [
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Eval bar
+                    SizedBox(
+                      width: 24,
+                      child: AspectRatio(
+                        aspectRatio: 1 / 8,
+                        child: EvalBar(evalCp: _evalCp, isVertical: true),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // Board (bounded to avoid vertical overflow)
+                    Expanded(
+                      child: Center(
+                        child: SizedBox(
+                          width: clampedBoardSize,
+                          height: clampedBoardSize,
+                          child: ChessBoardWidget(
+                            board: _currentBoard,
+                            boardFlipped: !widget.gameState.playerIsWhite,
+                            selectedSquare: null,
+                            legalMoves: const [],
+                            lastMove: _lastMoveOnBoard,
+                            onSquareTapped: (_) {},
+                            enabled: false,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 8),
-              // Board
-              Expanded(
-                child: ChessBoardWidget(
-                  board: _currentBoard,
-                  boardFlipped: !widget.gameState.playerIsWhite,
-                  selectedSquare: null,
-                  legalMoves: const [],
-                  lastMove: _lastMoveOnBoard,
-                  onSquareTapped: (_) {},
-                  enabled: false,
-                ),
+            ),
+            const SliverToBoxAdapter(child: SizedBox(height: 8)),
+            SliverToBoxAdapter(child: _buildNavControls()),
+            const SliverToBoxAdapter(child: SizedBox(height: 8)),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _buildSelectedMoveCard(),
               ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        // Nav controls
-        _buildNavControls(),
-        const SizedBox(height: 8),
-        // Coach feedback for selected move
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: _buildSelectedMoveCard(),
-        ),
-        const SizedBox(height: 8),
-        // Move list
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: _buildMoveList(),
-          ),
-        ),
-      ],
+            ),
+            const SliverToBoxAdapter(child: SizedBox(height: 8)),
+            SliverFillRemaining(
+              hasScrollBody: true,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: _buildMoveList(),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
