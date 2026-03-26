@@ -88,16 +88,24 @@ def tablebase_move_for_root(board: chess.Board):
                 dtz = 9999
             score = -child_wdl
 
-            # For winning moves (score > 0): dtz of child is negative
-            # (opponent is losing). We want the FASTEST mate = smallest |dtz|.
-            # For losing moves (score < 0): dtz of child is positive
-            # (opponent is winning). We want the SLOWEST loss = largest dtz.
-            # Using -abs(dtz) for wins (prefer smallest |dtz|) and
-            # abs(dtz) for losses (prefer largest |dtz|).
-            if score > 0:
-                sort_dtz = -abs(dtz)  # fastest win first
+            # In WINNING positions, deprioritize moves that cause a
+            # repetition so the engine makes progress instead of looping.
+            # In DRAWN positions, repetitions are fine (draw by repetition
+            # is the correct outcome).
+            is_repeat = board.is_repetition(2)
+            if is_repeat and score > 0:
+                # Demote to "barely winning" so any non-repeating win
+                # is preferred, but this is still better than a draw (0)
+                # or a loss (-1/-2). We keep score > 0 so we don't
+                # accidentally prefer a draw over a repeating win.
+                score = 0  # treat repeating win as a draw-level move
+                sort_dtz = 9998  # worst among equal-score moves
             else:
-                sort_dtz = abs(dtz)   # slowest loss first
+                # Normal DTZ sorting
+                if score > 0:
+                    sort_dtz = -abs(dtz)  # fastest win first
+                else:
+                    sort_dtz = abs(dtz)   # slowest loss first
 
             key = (score, sort_dtz)
             if key > best_key:
