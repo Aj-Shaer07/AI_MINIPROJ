@@ -67,7 +67,7 @@ export default function Analysis() {
   const [analysis, setAnalysis] = useState<AnalysisPly[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [currentPly, setCurrentPly] = useState(totalPlies) // start at end of game
+  const [currentPly, setCurrentPly] = useState(0) // start at beginning of game
 
   // Derived board state
   const { board, lastMove } = boardAtPly(history, currentPly)
@@ -188,7 +188,7 @@ export default function Analysis() {
                   >
                     <defs>
                       <marker id="arrowhead" markerWidth="3" markerHeight="3" refX="1.5" refY="1.5" orient="auto">
-                        <polygon points="0 0, 3 1.5, 0 3" fill="#f0c040" />
+                        <polygon points="0 0, 3 1.5, 0 3" fill="var(--arrow-best-move)" />
                       </marker>
                     </defs>
                     <line
@@ -196,7 +196,7 @@ export default function Analysis() {
                       y1={flip(bestArrow[0]) + 0.5}
                       x2={flip(bestArrow[3]) + 0.5}
                       y2={flip(bestArrow[2]) + 0.5}
-                      stroke="#f0c040"
+                      stroke="var(--arrow-best-move)"
                       strokeWidth="0.15"
                       strokeLinecap="round"
                       strokeOpacity="0.85"

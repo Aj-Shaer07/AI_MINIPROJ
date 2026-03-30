@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { Chess, Move } from 'chess.js'
-import { searchBestMove, evaluatePosition } from '../utils/api'
+import { searchBestMove, evaluatePosition, arenaSearch } from '../utils/api'
 
 export type BoardState = string[][]
 
@@ -12,6 +12,9 @@ type UseGameControllerOpts = {
   enableCoachMode?: boolean
   enableClocks?: boolean
   botId?: string
+  isArena?: boolean
+  arenaDepth?: number
+  arenaQuality?: number
 }
 
 export type GameOverReason = 'checkmate' | 'stalemate' | 'time' | 'resign' | null
@@ -34,7 +37,18 @@ const squareToCoords = (sq: string): [number, number] => [8 - parseInt(sq[1]), s
 const coordsToSquare = (r: number, c: number) => `${String.fromCharCode(97 + c)}${8 - r}`
 
 export default function useGameController(opts: UseGameControllerOpts = {}) {
-  const { playerColor = 'white', maxDepth = 3, timeControlMin = 5, incrementSec = 0, enableCoachMode = false, enableClocks = false, botId } = opts
+  const { 
+    playerColor = 'white', 
+    maxDepth = 3, 
+    timeControlMin = 5, 
+    incrementSec = 0, 
+    enableCoachMode = false, 
+    enableClocks = false, 
+    botId,
+    isArena = false,
+    arenaDepth = 4,
+    arenaQuality = 0
+  } = opts
 
   // The single source of truth chess instance lives in a ref so effects always read
   // the latest game without stale closures.
@@ -156,7 +170,12 @@ export default function useGameController(opts: UseGameControllerOpts = {}) {
 
       ; (async () => {
         try {
-          const resp = await searchBestMove(START_FEN, historyRef.current, maxDepth, playerColor === 'white', botId)
+          let resp;
+          if (isArena) {
+            resp = await arenaSearch(START_FEN, historyRef.current, arenaDepth, arenaQuality, playerColor === 'white')
+          } else {
+            resp = await searchBestMove(START_FEN, historyRef.current, maxDepth, playerColor === 'white', botId)
+          }
           if (cancelled || !resp?.best_move) return
 
           // Validate & apply engine move

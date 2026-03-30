@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
 import Landing from './pages/Landing'
 import Game from './pages/Game'
 import Analysis from './pages/Analysis'
+import Arena from './pages/Arena'
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
           <Route path="/" element={<Landing />} />
           <Route path="/game" element={<Game />} />
           <Route path="/analysis" element={<Analysis />} />
+          <Route path="/arena" element={<Arena />} />
         </Routes>
       </main>
     </BrowserRouter>

@@ -13,6 +13,7 @@ export default function Game() {
   const navigate = useNavigate()
 
   const settings = useMemo(() => {
+    const isArena = searchParams.has('arena')
     return {
       timeControl: searchParams.get('time') || DEFAULT_SETTINGS.timeControl,
       increment: searchParams.get('inc') || DEFAULT_SETTINGS.increment,
@@ -21,6 +22,9 @@ export default function Game() {
       showEngineClock: searchParams.has('eclock') ? searchParams.get('eclock') === 'true' : DEFAULT_SETTINGS.showEngineClock,
       enableCoachMode: searchParams.has('coach') ? searchParams.get('coach') === 'true' : DEFAULT_SETTINGS.enableCoachMode,
       botId: searchParams.get('bot') || undefined,
+      isArena,
+      arenaDepth: isArena ? parseInt(searchParams.get('depth') || '4') : 4,
+      arenaQuality: isArena ? parseInt(searchParams.get('quality_tier') || '0') : 0,
     }
   }, [searchParams])
 
@@ -31,6 +35,10 @@ export default function Game() {
     enableCoachMode: settings.enableCoachMode,
     enableClocks: settings.showPlayerClock || settings.showEngineClock,
     botId: settings.botId,
+    // Inject arena params so useGameController can use them for search
+    isArena: settings.isArena,
+    arenaDepth: settings.arenaDepth,
+    arenaQuality: settings.arenaQuality,
   })
   const [selected, setSelected] = useState<[number, number] | null>(null)
 
@@ -109,16 +117,40 @@ export default function Game() {
               {gc.moveHistory.length} move{gc.moveHistory.length !== 1 ? 's' : ''} played
             </p>
             <div className="game-over-actions">
-              <button className="restart-btn" onClick={() => navigate('/')}>New Game</button>
-              {gc.moveHistory.length > 0 && (
+              {settings.isArena ? (
                 <button
-                  className="analysis-btn"
-                  onClick={() => navigate(`/analysis?color=${settings.playerColor}`, {
-                    state: { history: gc.moveHistory, playerColor: settings.playerColor }
-                  })}
+                  className="btn btn-primary btn-large"
+                  onClick={async () => {
+                    // Report result back to Arena then redirect
+                    import('../utils/api').then(api => {
+                      let result: 'win' | 'loss' | 'draw' = 'draw'
+                      if (gc.gameOverReason === 'checkmate' || gc.gameOverReason === 'resign' || gc.gameOverReason === 'time') {
+                        // If turn != playerColor, it means player just moved and won
+                        const playerWon = gc.turn !== settings.playerColor
+                        result = playerWon ? 'win' : 'loss'
+                      }
+                      api.arenaReportResult(result).then(res => {
+                        navigate(`/arena?result=${result}&msg=${encodeURIComponent(res.message)}`)
+                      }).catch(() => navigate('/arena'))
+                    })
+                  }}
                 >
-                  Post-Game Analysis
+                  Return to Arena →
                 </button>
+              ) : (
+                <>
+                  <button className="restart-btn" onClick={() => navigate('/')}>New Game</button>
+                  {gc.moveHistory.length > 0 && (
+                    <button
+                      className="analysis-btn"
+                      onClick={() => navigate(`/analysis?color=${settings.playerColor}`, {
+                        state: { history: gc.moveHistory, playerColor: settings.playerColor }
+                      })}
+                    >
+                      Post-Game Analysis
+                    </button>
+                  )}
+                </>
               )}
             </div>
           </div>

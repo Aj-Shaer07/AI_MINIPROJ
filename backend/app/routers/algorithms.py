@@ -150,69 +150,29 @@ def get_router(modules: Dict[str, Any]) -> APIRouter:
                 # Generate Explanation Text
                 explanation_text = None
                 if is_player_move:
-                    # 1. Try passing it to the explain.py rules
-                    from app.utils.explain import analyze_move as explain_move
-                    exp_dict = explain_move(board_before, move, prev_eval, curr_eval, best_move_san, False)
+                    # Use the enhanced analyze_move for base explanation
+                    exp_dict = explain.analyze_move(board_before, move, prev_eval, curr_eval, best_move_san, False)
                     if exp_dict and "text" in exp_dict:
                         explanation_text = exp_dict["text"]
-                    
-                    # 2. Append/generate dynamic context for mistakes/blunders
-                    if annotation in ["BLUNDER", "MISTAKE", "INACCURACY"]:
-                        if best_move_san and best_move_obj:
-                            reason = "improves your position"
-                            
-                            # Analyze why the best move was better
-                            if board_before.is_capture(best_move_obj):
-                                reason = "wins material or improves a trade"
-                            elif board_before.gives_check(best_move_obj):
-                                reason = "forces the opponent's hand with a check"
-                            else:
-                                # Center control checks
-                                moved_piece = board_before.piece_at(best_move_obj.from_square)
-                                to_sq = best_move_obj.to_square
-                                center_squares = [chess.E4, chess.D4, chess.E5, chess.D5]
-                                if to_sq in center_squares:
-                                    reason = "fights for central control"
-                                elif moved_piece and moved_piece.piece_type in [chess.KNIGHT, chess.BISHOP] and board_before.ply() < 20:
-                                    reason = "develops a minor piece to a more active square"
-                                else:
-                                    # Check if it creates a threat
-                                    reason = "finds a more active square or creates a threat"
 
-                            dynamic_reason = f"A stronger continuation was {best_move_san}, which {reason}."
-                            if explanation_text:
-                                explanation_text += " " + dynamic_reason
-                            else:
-                                explanation_text = f"This move was imprecise and drops evaluation. " + dynamic_reason
-                        elif not explanation_text:
-                            explanation_text = "This move was an inaccuracy."
-                            
-                    # 3. Fallback for great/brilliant moves
-                    elif not explanation_text and annotation in ["BRILLIANT", "GOOD"]:
-                        explanation_text = "Solid finding. This maintains or improves your advantage."
+                    # For mistakes/blunders, append specific reasoning about the best move
+                    if annotation in ["BLUNDER", "MISTAKE", "INACCURACY"] and best_move_obj and best_move_san:
+                        best_reason = explain.explain_best_move(
+                            board_before, move, best_move_obj, best_move_san, annotation
+                        )
+                        if best_reason:
+                            explanation_text = best_reason  # Use the full best-move explanation
+                    
+                    # Fallback for great/brilliant moves without an explanation
+                    if not explanation_text and annotation in ["BRILLIANT", "GOOD"]:
+                        explanation_text = "Strong move — this maintains or improves your advantage."
                 else:
-                    # Engine Move Explanations
-                    if board_after.is_checkmate():
-                        explanation_text = "The engine delivers checkmate."
-                    elif board_after.is_check():
-                        explanation_text = "The engine is checking your King."
-                    elif board_before.is_capture(move):
-                        captured = board_before.piece_at(move.to_square)
-                        cname = chess.piece_name(captured.piece_type).capitalize() if captured else "Piece"
-                        explanation_text = f"The engine captures your {cname}."
+                    # Engine move: use the dedicated engine move analyzer
+                    eng_dict = explain.analyze_engine_move(board_before, move, prev_eval, curr_eval)
+                    if eng_dict and "text" in eng_dict:
+                        explanation_text = eng_dict["text"]
                     else:
-                        # Mention piece being developed early on
-                        moved_p = board_before.piece_at(move.from_square)
-                        if board_before.ply() < 20 and moved_p and moved_p.piece_type in [chess.KNIGHT, chess.BISHOP]:
-                            explanation_text = "The engine is developing its minor pieces."
-                        else:
-                            # Positional
-                            if curr_eval > 200:
-                                explanation_text = "The engine consolidates its winning advantage."
-                            elif curr_eval < -200:
-                                explanation_text = "The engine is defending a tough position."
-                            else:
-                                explanation_text = "The engine makes a positional maneuver."
+                        explanation_text = "The engine makes a quiet positional move."
 
                 results.append({
                     "ply": idx + 1,
@@ -281,11 +241,11 @@ def get_router(modules: Dict[str, Any]) -> APIRouter:
     def get_bots():
         return {
             "bots": [
-                {"id": "bot1", "name": "Beginner Bot", "elo": "Elo 800"},
-                {"id": "bot2", "name": "Casual Bot", "elo": "Elo 1200"},
-                {"id": "bot3", "name": "Intermediate Bot", "elo": "Elo 1500"},
-                {"id": "bot4", "name": "Advanced Bot", "elo": "Elo 2000"},
-                {"id": "bot5", "name": "Expert Bot", "elo": "Elo 2500"},
+                {"id": "bot1", "name": "Martin (Beginner)", "elo": "800 ELO"},
+                {"id": "bot2", "name": "Jimmy (Casual)", "elo": "1200 ELO"},
+                {"id": "bot3", "name": "Sven (Intermediate)", "elo": "1500 ELO"},
+                {"id": "bot4", "name": "Beth (Advanced)", "elo": "2000 ELO"},
+                {"id": "bot5", "name": "Magnus (Expert)", "elo": "2500+ ELO"},
             ]
         }
 
@@ -297,11 +257,11 @@ def get_router(modules: Dict[str, Any]) -> APIRouter:
         depth = req.max_depth
         if req.bot_id is not None:
             bot_depths = {
-                "bot1": 3,
-                "bot2": 5,
+                "bot1": 2,
+                "bot2": 3,
                 "bot3": 4,
-                "bot4": 7,
-                "bot5": 6,
+                "bot4": 5,
+                "bot5": 7,
             }
             depth = bot_depths.get(cast(str, req.bot_id), depth)
 

@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { TIME_OPTIONS, INCREMENT_OPTIONS, COLOR_OPTIONS, DEFAULT_SETTINGS } from '../values'
 import { getBots, type Bot } from '../utils/api'
 import '../styles/chess.css'
@@ -28,6 +28,24 @@ export default function Landing() {
   const [enableCoachMode, setEnableCoachMode] = useState(DEFAULT_SETTINGS.enableCoachMode)
   const [bots, setBots] = useState<Bot[]>([])
   const [hoveredBot, setHoveredBot] = useState<string | null>(null)
+  
+  // Ref and state for arena section scroll animation
+  const arenaRef = useRef<HTMLDivElement>(null)
+  const [arenaVisible, setArenaVisible] = useState(false)
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setArenaVisible(true)
+          observer.disconnect()
+        }
+      },
+      { threshold: 0.2 }
+    )
+    if (arenaRef.current) observer.observe(arenaRef.current)
+    return () => observer.disconnect()
+  }, [])
 
   // Reset step if brand link clicked (detected via state)
   useEffect(() => {
@@ -60,11 +78,11 @@ export default function Landing() {
       getBots()
         .then(r => setBots(r.bots))
         .catch(() => setBots([
-          { id: 'bot1', name: 'Beginner Bot', elo: 'Elo 800' },
-          { id: 'bot2', name: 'Casual Bot', elo: 'Elo 1200' },
-          { id: 'bot3', name: 'Intermediate Bot', elo: 'Elo 1500' },
-          { id: 'bot4', name: 'Advanced Bot', elo: 'Elo 2000' },
-          { id: 'bot5', name: 'Expert Bot', elo: 'Elo 2500' },
+          { id: 'bot1', name: 'Martin (Beginner)', elo: '800 ELO' },
+          { id: 'bot2', name: 'Jimmy (Casual)', elo: '1200 ELO' },
+          { id: 'bot3', name: 'Sven (Intermediate)', elo: '1500 ELO' },
+          { id: 'bot4', name: 'Beth (Advanced)', elo: '2000 ELO' },
+          { id: 'bot5', name: 'Magnus (Expert)', elo: '2500+ ELO' },
         ]))
     }
   }, [step])
@@ -105,6 +123,30 @@ export default function Landing() {
                   ))}
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+
+        {/* ─── Arena Section (Scroll down) ────────────────────────────────── */}
+        <div 
+          ref={arenaRef} 
+          className={`landing-arena-section ${arenaVisible ? 'visible' : ''}`}
+        >
+          <div className="arena-teaser-card">
+            <div className="arena-teaser-content">
+              <h2>Self-Paced Arena</h2>
+              <p>Don't know your ELO? Let the engine figure it out.</p>
+              <p className="arena-teaser-desc">
+                Play a series of games. The AI adapts to your skill level — winning makes it harder, 
+                losing gives you a chance to recover. Discover your true rating.
+              </p>
+              <button 
+                className="btn btn-primary" 
+                onClick={() => navigate('/arena')}
+                style={{ marginTop: '20px', padding: '12px 24px', fontSize: '1.1rem' }}
+              >
+                Enter the Arena
+              </button>
             </div>
           </div>
         </div>

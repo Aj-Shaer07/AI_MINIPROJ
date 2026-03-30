@@ -28,14 +28,15 @@
 /* ─── Landing Page ─── */
 .landing {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   min-height: calc(100vh - var(--header-height));
   background:
     radial-gradient(ellipse at 20% 80%, rgba(84, 196, 129, 0.06) 0%, transparent 50%),
     radial-gradient(ellipse at 80% 20%, rgba(84, 196, 129, 0.04) 0%, transparent 50%),
     var(--bg-primary);
-  padding: 2rem;
+  padding: 0;
 }
 
 .landing-hero {
@@ -44,6 +45,8 @@
   gap: 4rem;
   max-width: 960px;
   width: 100%;
+  min-height: calc(100vh - var(--header-height));
+  padding: 2rem;
 }
 
 .landing-content {
@@ -733,6 +736,7 @@
   padding: 2rem 2.5rem;
   max-width: 560px;
   width: 100%;
+  margin: auto;
   box-shadow: 0 16px 60px rgba(0, 0, 0, 0.3);
   opacity: 0;
   animation: slideUpCard 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
@@ -1072,6 +1076,7 @@
   padding: 2rem 2.5rem;
   max-width: 680px;
   width: 100%;
+  margin: auto;
   box-shadow: 0 16px 60px rgba(0, 0, 0, 0.3);
   opacity: 0;
   animation: slideUpCard 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;

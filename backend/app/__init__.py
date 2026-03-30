@@ -19,8 +19,10 @@ alg_modules = load_algorithms()
 
 # Register routers (imported late to avoid circulars)
 from .routers import health, algorithms as algorithms_router
+from .routers import arena as arena_router
 
 app.include_router(health.router)
 app.include_router(algorithms_router.get_router(alg_modules))
+app.include_router(arena_router.get_arena_router(alg_modules))
 
 __all__ = ["app", "alg_modules"]

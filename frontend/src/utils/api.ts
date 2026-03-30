@@ -75,3 +75,54 @@ export async function analyzeGame(history: string[], playerIsWhite = true): Prom
   if (!res.ok) throw new Error(`Analyze game failed: ${res.status}`)
   return res.json()
 }
+export interface ArenaSession {
+  depth: number
+  quality_tier: number
+  games_played: number
+  wins: number
+  losses: number
+  draws: number
+  estimated_elo: number
+  calibrated: boolean
+  draw_streak: number
+}
+
+export async function arenaGetSession(): Promise<ArenaSession> {
+  const res = await fetch(`${BACKEND_URL}/arena/session`)
+  if (!res.ok) throw new Error(`Arena session failed: ${res.status}`)
+  return res.json()
+}
+
+export async function arenaReportResult(
+  result: 'win' | 'loss' | 'draw'
+): Promise<{ result: string; message: string; estimated_elo: number; next: { depth: number; quality_tier: number }; session: ArenaSession }> {
+  const res = await fetch(`${BACKEND_URL}/arena/result`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ result }),
+  })
+  if (!res.ok) throw new Error(`Arena result failed: ${res.status}`)
+  return res.json()
+}
+
+export async function arenaResetSession(): Promise<{ reset: boolean; session: ArenaSession }> {
+  const res = await fetch(`${BACKEND_URL}/arena/reset`, { method: 'POST' })
+  if (!res.ok) throw new Error(`Arena reset failed: ${res.status}`)
+  return res.json()
+}
+
+export async function arenaSearch(
+  fen: string,
+  history: string[],
+  depth: number,
+  quality_tier: number,
+  engine_is_black: boolean
+): Promise<{ best_move: string | null; info: Record<string, unknown> }> {
+  const res = await fetch(`${BACKEND_URL}/arena/search`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fen, history, depth, quality_tier, engine_is_black }),
+  })
+  if (!res.ok) throw new Error(`Arena search failed: ${res.status}`)
+  return res.json()
+}
