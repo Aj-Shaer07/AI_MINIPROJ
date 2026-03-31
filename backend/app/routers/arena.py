@@ -179,101 +179,314 @@ def get_arena_router(alg_modules: dict) -> APIRouter:
 
     def _pick_nth_best_move(board: chess.Board, depth: int, quality_tier: int, engine_is_black: bool):
         """
-        Proper Multi-PV approach: evaluate each legal root move with a full search at (depth - 1).
-        Because of the global Transposition Table, searching sibling branches is very fast.
-        This ensures the Nth best move is determined mathematically at the actual requested depth level,
-        not just via static depth-1 snapshots.
+        Realistic Skill Emulation — Senior Dev improvements over naive Nth-best.
+
+        Key insights that make this more authentic than rigid Nth-best selection:
+
+        1. FORCED MOVES: If only 1 legal move exists, always play it.
+        2. MATE IN 1: Every human at any ELO plays forced checkmate — always play it.
+        3. RECAPTURE EXCEPTION: After the opponent takes a piece, an ELO-appropriate player
+           recaptures cleanly if the recapture wins material back. Pure Nth-best could skip
+           this, making the engine look wildly unrealistic at ANY skill level.
+        4. BLUNDER FLOOR: The engine never makes pure blunders (hanging material massively)
+           unless at the very lowest tier. This matches real human play — even 600 ELO players
+           don't consistently give away queens for free.
+        5. ELO NOISE: Instead of rigidly picking the Nth-best move, we add Gaussian noise to
+           the evaluation scores and sample from the resulting distribution. This mimics
+           cognitive inconsistency in humans far better than fixed rank selection.
+        6. MOVE BAND SELECTION: Moves are binned into (good / okay / bad) bands based on
+           eval_cp delta from the best move. Quality tier selects which band to sample from.
         """
+        import time
+        import random
+        import math
+
         legal_moves = list(board.legal_moves)
         if not legal_moves:
             return None, {}
 
         n_skip = MAX_QUALITY - quality_tier  # quality=3→skip 0 (best), quality=0→skip 3 (4th best)
-
-        if n_skip == 0 or len(legal_moves) <= n_skip:
-            return search.search_with_info(board, depth, engine_is_black=engine_is_black)
-
-        import time
         start = time.time()
 
-        # 1. Opening Book
+        # ── 1. Opening Book ─────────────────────────────────────────────────────
         try:
             from algorithms.openingbook import is_book_loaded, _reader
             if is_book_loaded() and _reader is not None:
                 entries = list(_reader.find_all(board))
-                entries = [e for e in entries if e.move in legal_moves]
+                entries = [e for e in entries if e.move in board.legal_moves]
                 if entries:
                     entries.sort(key=lambda e: e.weight, reverse=True)
-                    # Pick Nth popular book move
-                    idx = min(n_skip, len(entries) - 1)
-                    ob_move = entries[idx].move
+                    # Best move quality → most popular book move.
+                    # Suboptimal → pick a less popular book move (or random at lowest tier)
+                    if quality_tier == MAX_QUALITY:
+                        ob_move = entries[0].move
+                    elif quality_tier == 0 and len(entries) > 1:
+                        # Lowest tier: pick a random book move (weighted by inverse popularity)
+                        ob_move = random.choice(entries).move
+                    else:
+                        idx = min(n_skip, len(entries) - 1)
+                        ob_move = entries[idx].move
                     info = {
-                        "move": ob_move, "eval_cp": 0, "depth": 0, "time_ms": int((time.time() - start) * 1000),
-                        "nodes": 0, "qnodes": 0, "cutoffs": 0, "tt_hits": 0, "tt_probes": 0, "max_ply": 0, "max_qply": 0,
+                        "move": ob_move, "eval_cp": 0, "depth": 0,
+                        "time_ms": int((time.time() - start) * 1000),
+                        "nodes": 0, "qnodes": 0, "cutoffs": 0, "tt_hits": 0,
+                        "tt_probes": 0, "max_ply": 0, "max_qply": 0,
                         "source": f"arena_book_q{quality_tier}",
                     }
                     return ob_move, info
         except Exception:
             pass
 
-        # 2. Syzygy Endgame Tablebases
-        try:
-            from algorithms import tablebase
-            if tablebase is not None and tablebase.is_tablebase_loaded():
-                # For endgame, just let the tablebase engine do its thing if possible. 
-                # Sub-optimal tablebase moves can be very tricky to extract cleanly without full DTZ/WDL sorting.
-                # Since endgame usually means D>=5 anyway for most bots, we will just fallback to TT/Search.
-                pass
-        except Exception:
-            pass
+        # ── 2. FORCED MOVE — only 1 legal move, no choice ───────────────────────
+        if len(legal_moves) == 1:
+            move, info = search.search_with_info(board, depth, engine_is_black=engine_is_black)
+            return move, info
 
-        # Sort root moves using internal move ordering to maximize TT cutoff efficiency
+        # ── 3. MATE IN 1 — always play it, regardless of skill tier ─────────────
+        for m in legal_moves:
+            test = board.copy()
+            test.push(m)
+            if test.is_checkmate():
+                # Found mate in 1 — every human plays this
+                info = {
+                    "move": m, "eval_cp": 99999, "depth": 1,
+                    "time_ms": int((time.time() - start) * 1000),
+                    "nodes": len(legal_moves), "qnodes": 0, "cutoffs": 0,
+                    "tt_hits": 0, "tt_probes": 0, "max_ply": 1, "max_qply": 0,
+                    "source": f"arena_mate1_q{quality_tier}",
+                }
+                return m, info
+
+        # ── 4. Score every move via search at (depth-1) ──────────────────────────
+        # IMPORTANT: We call negamax() directly (not iterative_deepening) for two reasons:
+        #   a) iterative_deepening boosts depth in endgames (+4 to +6 extra plies),
+        #      which would make scoring 30 moves at depth-7 take minutes.
+        #   b) We need consistent depth-N scores across all branches — iterative
+        #      deepening's aspiration windows can cause inconsistent depths.
+        # We cap child scoring depth at min(depth-1, 4) for speed — the relative
+        # ranking of moves doesn't change much beyond depth-4.
+
         try:
             legal_moves = alg_modules["move_ordering"].order_moves(board, legal_moves)
         except Exception:
             pass
 
         scored_moves: list[tuple[int, chess.Move, dict]] = []
+        evaluation_mod = alg_modules.get("evaluation")
+        child_depth = max(1, min(depth - 1, 4))  # cap at 4 for speed
+
+        # We always score from White's perspective (engine_is_black=False in negamax)
+        # so scores are raw negamax values in White-positive convention.
         for move in legal_moves:
             test = board.copy()
             test.push(move)
             try:
                 if depth <= 1:
-                    evaluation_mod = alg_modules.get("evaluation")
                     raw = evaluation_mod.evaluate(test, ply=1) if evaluation_mod else 0
-                    child_info = {"eval_cp": raw, "nodes": 1, "qnodes": 0, "tt_hits": 0, "cutoffs": 0}
+                    # evaluate() returns White-positive already
+                    child_score = int(raw)
+                    child_info = {"eval_cp": child_score, "nodes": 1, "qnodes": 0, "tt_hits": 0, "cutoffs": 0, "max_qply": 0}
                 else:
-                    # **CRITICAL**: Use iterative_deepening directly to bypass book/syzygy interceptions at child nodes!
-                    _, value, _, stats, _ = search.iterative_deepening(test, max(1, depth - 1), engine_is_black=False)
+                    # Call negamax directly — bypasses book/tablebase/depth-boost logic
+                    # negamax returns from the perspective of the position's side-to-move (negamax convention)
+                    # We need White-positive, so: if it's Black to move in test, negate the result.
+                    from algorithms.search import negamax, SearchStats
+                    stats = SearchStats()
+                    killers: dict = {}
+                    history: dict = {}
+                    raw_val, _ = negamax(
+                        test, child_depth, -1_000_000, 1_000_000,
+                        ply=0, check_ext_used=0, stats=stats, killers=killers, history=history
+                    )
+                    # negamax score is from the perspective of test.turn (side to move after our move)
+                    # Convert to White-positive: if test.turn is Black (we just moved as White), negate.
+                    if test.turn == chess.BLACK:
+                        child_score = -raw_val   # Black to move → negate → White-positive
+                    else:
+                        child_score = raw_val    # White to move → already White-positive (after Black moved)
                     child_info = {
-                        "eval_cp": value,
+                        "eval_cp": child_score,
                         "nodes": stats.nodes, "qnodes": stats.qnodes, "cutoffs": stats.cutoffs,
                         "tt_hits": stats.tt_hits, "tt_probes": stats.tt_probes, "max_qply": stats.max_qply
                     }
-                
-                eval_cp = int(child_info.get("eval_cp", 0))
-                
-                # Rank scores from the Engine's perspective:
-                # If engine is White, it wants to maximize White-positive eval_cp
-                # If engine is Black, it wants to minimize White-positive eval_cp 
-                score = eval_cp if not engine_is_black else -eval_cp
+
+                # Convert White-positive child score to engine-relative (positive = good for engine)
+                score = child_score if not engine_is_black else -child_score
             except Exception:
-                score = -999999  # very bad fallback score
+                score = -999999
                 child_info = {}
-                
+
             scored_moves.append((score, move, child_info))
 
-        # Sort descending (higher score = better for engine)
+        if not scored_moves:
+            return search.search_with_info(board, depth, engine_is_black=engine_is_black)
+
+        # Sort descending (best for engine first)
         scored_moves.sort(key=lambda x: x[0], reverse=True)
 
-        # Pick the Nth best (n_skip=0 → index 0 = best, n_skip=3 → index 3 = 4th best)
-        index = min(n_skip, len(scored_moves) - 1)
-        selected_move = scored_moves[index][1]
+        best_score = scored_moves[0][0]
 
-        info = {
-            "move": selected_move,
-            # We return the raw White-positive eval_cp for the frontend
-            "eval_cp": scored_moves[index][0] if not engine_is_black else -scored_moves[index][0],
+        # ── 5. FREE MATERIAL / HANGING PIECE EXCEPTION ──────────────────────────
+        # This covers two cases:
+        #   a) RECAPTURE: opponent just moved a piece to a square our piece can take
+        #   b) EN PRISE: opponent has left ANY piece hanging (undefended or under-defended)
+        #      such that we can capture and win material after exchanges
+        #
+        # Implementation: for every capture move, estimate NET material gain using
+        # a simple Static Exchange Evaluation (SEE) approximation:
+        #   gain ≈ value(captured_piece) - value(our_capturing_piece) if square defended
+        #          value(captured_piece)                               if square NOT defended
+        #
+        # Scale the "minimum gain to force capture" by quality tier:
+        #   Tier 3 (best):   capture anything ≥ 0cp gain  (free pawn → always take)
+        #   Tier 2:          capture anything ≥ 50cp gain (minor material)
+        #   Tier 1:          capture anything ≥ 150cp gain (rook/queen)
+        #   Tier 0 (worst):  capture anything ≥ 600cp gain (only a free queen)
+        #   → Even the weakest bot occasionally misses free pawns, but not free queens.
+
+        PIECE_CP = {
+            chess.PAWN: 100, chess.KNIGHT: 320, chess.BISHOP: 330,
+            chess.ROOK: 500, chess.QUEEN: 900, chess.KING: 20000,
+        }
+
+        def _see_approx(b: chess.Board, move: chess.Move) -> int:
+            """
+            Quick SEE approximation.
+            Returns estimated centipawn gain (positive = winning material).
+            """
+            captured = b.piece_at(move.to_square)
+            if captured is None:
+                return 0  # not a capture (en-passant counted separately)
+            captured_val = PIECE_CP.get(captured.piece_type, 0)
+
+            mover = b.piece_at(move.from_square)
+            if mover is None:
+                return 0
+            mover_val = PIECE_CP.get(mover.piece_type, 0)
+
+            # Is the target square defended by the opponent AFTER we take?
+            b_after = b.copy()
+            b_after.push(move)
+            opponent = b_after.turn  # opponent to move after our capture
+            if b_after.is_attacked_by(opponent, move.to_square):
+                # Square is defended — we'll likely lose our piece too.
+                # Net gain = captured_val - mover_val (can be negative = bad trade)
+                return captured_val - mover_val
+            else:
+                # Square is NOT defended — we win the piece for free.
+                return captured_val
+
+        # Minimum material gain (in cp) that forces a capture, per quality tier
+        FREE_MATERIAL_THRESHOLD = {
+            3: 0,    # always take free material (even a free pawn)
+            2: 50,   # take anything worth more than a pawn exchange
+            1: 150,  # take rooks and queens for free
+            0: 600,  # only take a free queen (very weak player)
+        }
+        threshold = FREE_MATERIAL_THRESHOLD[quality_tier]
+
+        # Find all captures that win material above the threshold
+        winning_captures = []
+        for sm in scored_moves:
+            move_candidate = sm[1]
+            if not board.is_capture(move_candidate):
+                continue
+            # Also handle en passant (always wins a pawn)
+            if board.is_en_passant(move_candidate):
+                gain = PIECE_CP[chess.PAWN]
+            else:
+                gain = _see_approx(board, move_candidate)
+            if gain >= threshold:
+                winning_captures.append((gain, sm))
+
+        if winning_captures:
+            # Sort by highest material gain, then by engine score
+            winning_captures.sort(key=lambda x: (x[0], x[1][0]), reverse=True)
+            best_capture = winning_captures[0][1]
+
+            # Only override if this capture is reasonably scored
+            # (not massively worse than best move — avoids weird TT discrepancies)
+            if best_capture[0] >= best_score - 200:
+                move = best_capture[1]
+                info = _build_info(best_capture, scored_moves, depth, quality_tier, start, engine_is_black)
+                info["source"] = f"arena_freematerial_q{quality_tier}"
+                return move, info
+
+        # ── 6. BLUNDER FLOOR — don't drop pieces egregiously at mid/high tiers ──
+        # Define blunder as a move that loses more than 'blunder_threshold' cp vs best move.
+        # Threshold scales with quality tier: lower tier = more lenient with material drops.
+        blunder_thresholds = {
+            0: 9999,   # 4th-best: anything goes (no floor)
+            1: 600,    # 3rd-best: won't drop more than a rook for nothing
+            2: 300,    # 2nd-best: won't drop more than a minor piece for nothing
+            3: 0,      # best-move: always plays best
+        }
+        blunder_floor_cp = blunder_thresholds[quality_tier]
+
+        # Filter out pure blunders for mid/high skill tiers
+        eligible_moves = [
+            sm for sm in scored_moves
+            if (best_score - sm[0]) <= blunder_floor_cp
+        ]
+        if not eligible_moves:
+            eligible_moves = scored_moves  # fallback if all moves are blunders (zugzwang etc.)
+
+        # ── 7. ELO-CALIBRATED BAND SELECTION WITH NOISE ─────────────────────────
+        # Rather than rigidly picking index N, we:
+        # a) Define quality bands: top-30cp = "good", 30-150cp = "okay", 150cp+ = "bad"
+        # b) Quality tier maps to which band to sample from
+        # c) Add Gaussian noise scaled to ELO tier for natural inconsistency
+
+        BAND_THRESHOLDS = {
+            3: (0, 30),       # best: must stay within top 30cp
+            2: (30, 150),     # 2nd-best: sample from "okay" moves (30-150cp below best)
+            1: (100, 300),    # 3rd-best: sample from "inaccuracy" range
+            0: (200, 700),    # 4th-best: sample from "mistake/blunder" range
+        }
+
+        lo, hi = BAND_THRESHOLDS[quality_tier]
+
+        # Noise magnitude: higher at lower tiers (simulates human inconsistency)
+        # quality=3: ±10cp noise, quality=0: ±80cp noise
+        noise_scale = [80, 50, 25, 10][quality_tier]
+
+        # Find moves in target band
+        band_moves = [
+            sm for sm in eligible_moves
+            if lo <= (best_score - sm[0]) <= hi
+        ]
+
+        # If no moves in the target band, widen the search
+        if not band_moves:
+            if quality_tier == MAX_QUALITY:
+                # Just play best
+                band_moves = eligible_moves[:1]
+            else:
+                # Relax: take anything below the best move
+                band_moves = eligible_moves[1:] if len(eligible_moves) > 1 else eligible_moves
+
+        if not band_moves:
+            band_moves = eligible_moves
+
+        # Add noise and re-sort to pick a move from the band naturally
+        def noisy_score(sm):
+            return sm[0] + random.gauss(0, noise_scale)
+
+        if quality_tier == MAX_QUALITY:
+            # At best quality: just take the highest score (no noise needed)
+            selected = max(band_moves, key=lambda sm: sm[0])
+        else:
+            # At suboptimal quality: use noisy selection within the band
+            selected = max(band_moves, key=noisy_score)
+
+        info = _build_info(selected, scored_moves, depth, quality_tier, start, engine_is_black)
+        return selected[1], info
+
+    def _build_info(selected, scored_moves, depth, quality_tier, start, engine_is_black):
+        import time
+        return {
+            "move": selected[1],
+            "eval_cp": selected[0] if not engine_is_black else -selected[0],
             "depth": depth,
             "time_ms": int((time.time() - start) * 1000),
             "nodes": sum(int(sm[2].get("nodes", 0)) for sm in scored_moves),
@@ -285,7 +498,6 @@ def get_arena_router(alg_modules: dict) -> APIRouter:
             "max_qply": max((int(sm[2].get("max_qply", 0)) for sm in scored_moves), default=0),
             "source": f"arena_d{depth}_q{quality_tier}",
         }
-        return selected_move, info
 
     # ── GET /arena/session ────────────────────────────────
     @router.get("/session")

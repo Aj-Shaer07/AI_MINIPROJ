@@ -872,47 +872,263 @@
   align-items: center;
 }
 
-/* ─── Responsive Adjustments ─── */
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE — Laptop/Small Desktop  ≤ 1200px
+   ═══════════════════════════════════════════════════════════════ */
+@media (max-width: 1200px) {
+  :root {
+    --square-size: clamp(52px, 8vw, 72px);
+    --panel-width: 240px;
+    --eval-bar-width: 22px;
+  }
+
+  .engine-eval-box {
+    width: 160px;
+    font-size: 0.78rem;
+  }
+
+  .landing-content h1 {
+    font-size: clamp(2rem, 4vw, 3.5rem);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE — Tablet  ≤ 1024px
+   ═══════════════════════════════════════════════════════════════ */
 @media (max-width: 1024px) {
+  :root {
+    --square-size: clamp(44px, 9.5vw, 68px);
+    --panel-width: 100%;
+    --eval-bar-width: 18px;
+  }
+
+  /* Game page: stack vertically, board on top */
+  .game-page {
+    height: auto;
+    min-height: calc(100vh - var(--header-height));
+    overflow-y: auto;
+    padding: 1rem 0.75rem;
+    align-items: flex-start;
+  }
+
   .game-layout {
-    flex-wrap: wrap;
-    justify-content: center;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  /* Eval bar goes horizontal under the board */
+  .eval-bar {
+    width: clamp(160px, 50vw, 320px);
+    height: var(--eval-bar-width);
+    flex-direction: row;
+    order: 99; /* push below board column */
+  }
+
+  .eval-fill {
+    margin-top: 0;
+    margin-left: auto;
+    height: 100% !important;
+    width: auto;
+  }
+
+  .eval-text.bottom-adv { bottom: auto; left: 2px; }
+  .eval-text.top-adv    { top: auto; right: 2px; }
+
+  .board-column {
+    min-width: unset;
+    width: 100%;
+    max-width: calc(var(--square-size) * 8 + 2px);
   }
 
   .side-panel {
     width: 100%;
     max-width: calc(var(--square-size) * 8);
-    height: 400px;
+    height: 280px;
   }
 
-  .eval-bar {
-    width: 20px;
+  .engine-eval-box {
+    display: none; /* hide raw debug stats on tablet */
+  }
+
+  /* Landing hero: side-by-side still but narrower */
+  .landing-hero {
+    gap: 2.5rem;
+  }
+
+  .preview-square {
+    width: 36px;
+    height: 36px;
+    font-size: 24px;
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE — Mobile/Tablet Portrait  ≤ 768px
+   ═══════════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
   :root {
-    --square-size: 11vw !important;
+    --square-size: min(11vw, 48px);
+    --header-height: 44px;
   }
 
+  /* ── Header ── */
+  .app-header { padding: 0 1rem; }
+  .brand a { font-size: 1.1rem; }
+
+  /* ── Game page ── */
+  .game-page {
+    padding: 0.5rem 0.25rem;
+  }
+
+  .game-layout {
+    gap: 0.5rem;
+  }
+
+  .player-bar {
+    padding: 0.5rem 0.25rem;
+  }
+
+  .player-name { font-size: 0.85rem; }
+  .player-clock { font-size: 0.95rem; min-width: 68px; }
+
+  /* ── Landing ── */
   .landing-hero {
     flex-direction: column;
     text-align: center;
-    gap: 2rem;
+    gap: 1.5rem;
+    padding: 1.5rem 1rem;
+    min-height: unset;
   }
+
+  .landing-content h1 { font-size: clamp(1.8rem, 7vw, 2.5rem); }
+  .landing-subtitle { font-size: 1rem; margin-left: auto; margin-right: auto; }
 
   .landing-actions {
     justify-content: center;
+    flex-direction: column;
+    align-items: center;
   }
 
-  .landing-subtitle {
-    margin-left: auto;
-    margin-right: auto;
+  .btn-large { width: 100%; max-width: 280px; }
+
+  .landing-board-preview { display: none; } /* hide on mobile — saves space */
+
+  /* ── Settings card ── */
+  .settings-card {
+    padding: 1.5rem 1.25rem;
+    margin: 1rem;
   }
 
-  .game-page {
-    padding: 1rem 0.5rem;
+  .settings-title { font-size: 1.4rem; }
+  .button-group { gap: 0.35rem; }
+  .group-btn { padding: 0.5rem 0.9rem; font-size: 0.85rem; }
+
+  .settings-footer {
+    flex-direction: column;
+    gap: 0.75rem;
   }
+
+  .settings-footer .btn { width: 100%; }
+
+  /* ── Bot selection ── */
+  .bot-selection-card {
+    padding: 1.5rem 1rem;
+    margin: 1rem;
+  }
+
+  .bot-avatar { width: 40px; height: 40px; font-size: 1.75rem; }
+  .bot-desc { display: none; } /* collapse descriptions on small screens */
+
+  /* ── Arena section on landing ── */
+  .landing-arena-section {
+    padding: 1.5rem 1rem;
+    min-height: 80vh;
+  }
+
+  .arena-teaser-card { padding: 2rem 1.25rem; }
+  .arena-teaser-content h2 { font-size: 1.6rem; }
+  .arena-teaser-content p { font-size: 1rem; }
+  .arena-teaser-desc { font-size: 0.95rem !important; }
+
+  /* ── Arena hub page ── */
+  .arena-page { padding: 20px 12px; gap: 20px; }
+  .arena-title { font-size: 1.8rem; }
+  .arena-subtitle { font-size: 0.95rem; }
+
+  .elo-number { font-size: 3rem; }
+  .arena-elo-card { padding: 20px 15px; gap: 15px; }
+  .elo-badge-large { padding: 15px 25px; }
+
+  .arena-difficulty {
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 12px 15px;
+  }
+
+  .difficulty-divider { display: none; }
+
+  .arena-record-row { gap: 8px; }
+  .record-stat { padding: 12px 8px; }
+  .record-num { font-size: 1.2rem; }
+  .record-lbl { font-size: 0.75rem; }
+
+  /* ── ELO Ladder: scroll horizontally on mobile ── */
+  .arena-ladder { padding: 15px 10px; overflow-x: auto; }
+  .ladder-grid { min-width: 400px; }
+  .ladder-row { grid-template-columns: 60px repeat(4, 1fr); gap: 5px; }
+  .ladder-depth { font-size: 0.75rem; padding-right: 5px; }
+  .ladder-cell { min-height: 48px; padding: 6px 4px; }
+  .cell-elo { font-size: 0.85rem; }
+  .cell-q { font-size: 0.65rem; }
+
+  .arena-actions {
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .arena-actions .btn { width: 100%; max-width: 320px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE — Small phones  ≤ 480px
+   ═══════════════════════════════════════════════════════════════ */
+@media (max-width: 480px) {
+  :root {
+    --square-size: min(11.5vw, 42px);
+    --header-height: 42px;
+  }
+
+  .brand a { font-size: 1rem; }
+
+  /* Game page: remove all additional padding so board fills screen */
+  .game-page { padding: 0; }
+  .game-layout { gap: 0.25rem; }
+
+  .board-column {
+    max-width: 100vw;
+  }
+
+  .player-bar { padding: 0.4rem 0.2rem; }
+  .player-name { font-size: 0.78rem; }
+  .avatar { width: 26px; height: 26px; font-size: 0.75rem; }
+  .player-clock { font-size: 0.85rem; min-width: 58px; padding: 0.35rem 0.5rem; }
+
+  .side-panel { height: 220px; }
+
+  .settings-card { padding: 1.25rem 0.9rem; margin: 0.5rem; }
+  .settings-title { font-size: 1.25rem; margin-bottom: 1.25rem; }
+  .checkbox-group { flex-direction: column; gap: 0.6rem; }
+
+  .game-over-card { padding: 1.75rem 1.25rem; }
+  .game-over-title { font-size: 1.3rem; }
+
+  .landing-content h1 { font-size: clamp(1.5rem, 8vw, 2rem); }
+
+  .arena-page { padding: 12px 8px; gap: 14px; }
+  .arena-title { font-size: 1.4rem; }
+  .elo-number { font-size: 2.5rem; }
 }
 
 /* ─── Active Clock ─── */

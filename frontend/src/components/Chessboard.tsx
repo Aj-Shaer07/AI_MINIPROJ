@@ -164,6 +164,8 @@ export default function Chessboard({
                   piece={piece}
                   isLight={isLight}
                   coord={coord}
+                  isBottomEdge={visualRIdx === 7}
+                  isLeftEdge={visualFIdx === 0}
                 />
               </div>
             )

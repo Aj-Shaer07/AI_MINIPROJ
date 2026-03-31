@@ -266,6 +266,74 @@ button {
   overflow: hidden;
 }
 
+/* ── Analysis responsive ── */
+@media (max-width: 1024px) {
+  .analysis-layout {
+    grid-template-columns: 200px 1fr 180px;
+  }
+
+  .analysis-board-wrap {
+    --square-size: min(
+      calc((100vh - 200px) / 8),
+      calc((100vw - 440px) / 8)
+    );
+  }
+}
+
+@media (max-width: 768px) {
+  .analysis-page {
+    height: auto;
+    min-height: calc(100vh - var(--header-height));
+    overflow-y: auto;
+  }
+
+  .analysis-layout {
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+    flex: unset;
+  }
+
+  .analysis-left,
+  .analysis-right {
+    overflow: visible;
+    border: none;
+    border-bottom: 1px solid var(--bg-elevated);
+  }
+
+  .analysis-right {
+    border-left: none;
+    overflow-y: visible;
+  }
+
+  .analysis-center {
+    overflow: visible;
+    padding: 12px 8px;
+  }
+
+  .analysis-board-wrap {
+    --square-size: min(11vw, 44px);
+    width: calc(var(--square-size) * 8);
+    height: calc(var(--square-size) * 8);
+  }
+
+  .analysis-header {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .analysis-title { font-size: 15px; }
+  .analysis-meta { min-width: unset; }
+
+  .annotated-move-list {
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  .ctrl-ply { min-width: 100px; font-size: 11px; }
+}
+
 .analysis-left,
 .analysis-right {
   background: var(--bg-secondary);
@@ -897,3 +965,61 @@ button {
   padding: 14px 30px;
   font-size: 1.1rem;
 }
+
+/* ── Arena inline Game Settings ──────────────────────────────────── */
+.arena-settings-section {
+  width: 100%;
+  max-width: 680px;
+  margin: 0 auto 8px;
+}
+
+.arena-settings-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 12px 18px;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-weight: 600;
+  transition: background 0.2s, border-color 0.2s;
+  text-align: left;
+}
+
+.arena-settings-toggle:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent-green);
+}
+
+.settings-toggle-hint {
+  flex: 1;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 400;
+}
+
+.settings-chevron {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  transition: transform 0.2s;
+}
+
+.arena-settings-panel {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-top: none;
+  border-radius: 0 0 10px 10px;
+  padding: 20px 20px 16px;
+  animation: slideDownPanel 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  overflow: hidden;
+}
+
+@keyframes slideDownPanel {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+

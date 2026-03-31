@@ -4,18 +4,21 @@ type Props = {
   piece: string
   isLight: boolean
   coord: string
+  isBottomEdge?: boolean
+  isLeftEdge?: boolean
 }
 
-export default function Square({ piece, isLight, coord }: Props) {
-  // We only show rank label on the 'a' file (coord ends in 'a')
-  // We only show file label on the '1' rank (coord starts with '1')
-  const showRank = coord.endsWith('a')
-  const showFile = coord.startsWith('1')
+export default function Square({ piece, isLight, coord, isBottomEdge, isLeftEdge }: Props) {
+  // We show rank label (number) on the left edge.
+  // We show file label (letter) on the bottom edge.
+  // If edges are not provided (e.g., preview boards), fallback to standard 'a' file and '1' rank.
+  const showRank = isLeftEdge ?? coord.startsWith('a')
+  const showFile = isBottomEdge ?? coord.endsWith('1')
 
   return (
     <div className={`square ${isLight ? 'light' : 'dark'}`}>
-      {showRank && <span className="coord-rank">{coord[0]}</span>}
-      {showFile && <span className="coord-file">{coord[1]}</span>}
+      {showRank && <span className="coord-rank">{coord[1]}</span>}
+      {showFile && <span className="coord-file">{coord[0]}</span>}
       {piece ? <Piece code={piece} /> : null}
     </div>
   )
