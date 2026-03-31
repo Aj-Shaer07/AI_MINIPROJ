@@ -1,4 +1,28 @@
-const BACKEND_URL = "http://127.0.0.1:8000"
+const BACKEND_URL = "/api"
+
+
+function getArenaSessionId(): string {
+  const key = 'arena_session_id'
+  const existing = localStorage.getItem(key)
+  if (existing) return existing
+
+  const sessionId =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+
+  localStorage.setItem(key, sessionId)
+  return sessionId
+}
+
+
+function jsonHeaders(includeArenaSession = false): HeadersInit {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (includeArenaSession) {
+    headers['X-Session-Id'] = getArenaSessionId()
+  }
+  return headers
+}
 
 export async function searchBestMove(fen: string, history: string[] = [], max_depth = 3, engine_is_black = true, botId?: string) {
   const body: any = { fen, history, max_depth, engine_is_black }
@@ -7,7 +31,7 @@ export async function searchBestMove(fen: string, history: string[] = [], max_de
   }
   const res = await fetch(`${BACKEND_URL}/search`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: jsonHeaders(),
     body: JSON.stringify(body),
   })
   if (!res.ok) {
@@ -25,7 +49,7 @@ export interface Bot {
 export async function getBots(): Promise<{ bots: Bot[] }> {
   const res = await fetch(`${BACKEND_URL}/bots`, {
     method: 'GET',
-    headers: { 'Content-Type': 'application/json' },
+    headers: jsonHeaders(),
   })
   if (!res.ok) throw new Error(`Get bots failed: ${res.status}`)
   return res.json()
@@ -34,7 +58,7 @@ export async function getBots(): Promise<{ bots: Bot[] }> {
 export async function evaluatePosition(fen: string, history: string[] = [], ply = 0, is_engine_move = false) {
   const res = await fetch(`${BACKEND_URL}/evaluate`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: jsonHeaders(),
     body: JSON.stringify({ fen, history, ply, is_engine_move }),
   })
   if (!res.ok) throw new Error(`Evaluate request failed: ${res.status}`)
@@ -44,7 +68,7 @@ export async function evaluatePosition(fen: string, history: string[] = [], ply 
 export async function generateMoves(fen: string, history: string[] = []) {
   const res = await fetch(`${BACKEND_URL}/generate_moves`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: jsonHeaders(),
     body: JSON.stringify({ fen, history }),
   })
   if (!res.ok) throw new Error(`Generate moves failed: ${res.status}`)
@@ -69,7 +93,7 @@ export interface AnalysisPly {
 export async function analyzeGame(history: string[], playerIsWhite = true): Promise<{ analysis: AnalysisPly[] }> {
   const res = await fetch(`${BACKEND_URL}/analyze_game`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: jsonHeaders(),
     body: JSON.stringify({ history, player_is_white: playerIsWhite }),
   })
   if (!res.ok) throw new Error(`Analyze game failed: ${res.status}`)
@@ -88,7 +112,9 @@ export interface ArenaSession {
 }
 
 export async function arenaGetSession(): Promise<ArenaSession> {
-  const res = await fetch(`${BACKEND_URL}/arena/session`)
+  const res = await fetch(`${BACKEND_URL}/arena/session`, {
+    headers: jsonHeaders(true),
+  })
   if (!res.ok) throw new Error(`Arena session failed: ${res.status}`)
   return res.json()
 }
@@ -98,7 +124,7 @@ export async function arenaReportResult(
 ): Promise<{ result: string; message: string; estimated_elo: number; next: { depth: number; quality_tier: number }; session: ArenaSession }> {
   const res = await fetch(`${BACKEND_URL}/arena/result`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: jsonHeaders(true),
     body: JSON.stringify({ result }),
   })
   if (!res.ok) throw new Error(`Arena result failed: ${res.status}`)
@@ -106,7 +132,10 @@ export async function arenaReportResult(
 }
 
 export async function arenaResetSession(): Promise<{ reset: boolean; session: ArenaSession }> {
-  const res = await fetch(`${BACKEND_URL}/arena/reset`, { method: 'POST' })
+  const res = await fetch(`${BACKEND_URL}/arena/reset`, {
+    method: 'POST',
+    headers: jsonHeaders(true),
+  })
   if (!res.ok) throw new Error(`Arena reset failed: ${res.status}`)
   return res.json()
 }
@@ -120,7 +149,7 @@ export async function arenaSearch(
 ): Promise<{ best_move: string | null; info: Record<string, unknown> }> {
   const res = await fetch(`${BACKEND_URL}/arena/search`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: jsonHeaders(true),
     body: JSON.stringify({ fen, history, depth, quality_tier, engine_is_black }),
   })
   if (!res.ok) throw new Error(`Arena search failed: ${res.status}`)

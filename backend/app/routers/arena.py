@@ -14,7 +14,7 @@ ELO Ladder (depth × quality tier):
 
 import chess
 import chess.polyglot
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 from typing import Optional, Literal
 import threading
@@ -42,32 +42,52 @@ STARTING_QUALITY = 0  # 4th-best
 MULTI_PV_COUNT = 4
 
 # ─────────────────────────────────────────────────────────
-# IN-MEMORY SESSION (single-player local app)
+# IN-MEMORY SESSIONS (keyed by X-Session-Id)
 # Thread-safe via a lock.
 # ─────────────────────────────────────────────────────────
 _lock = threading.Lock()
 
-_session: dict = {
-    "depth": STARTING_DEPTH,
-    "quality_tier": STARTING_QUALITY,  # 0=4th-best, 3=best
-    "games_played": 0,
-    "wins": 0,
-    "losses": 0,
-    "draws": 0,
-    "draw_streak": 0,   # 2 draws = 1 quality advance
-    "estimated_elo": ELO_TABLE[(STARTING_DEPTH, STARTING_QUALITY)],
-    "calibrated": False,  # True after at least 1 game
-}
+def _new_session_state() -> dict:
+    return {
+        "depth": STARTING_DEPTH,
+        "quality_tier": STARTING_QUALITY,  # 0=4th-best, 3=best
+        "games_played": 0,
+        "wins": 0,
+        "losses": 0,
+        "draws": 0,
+        "draw_streak": 0,   # 2 draws = 1 quality advance
+        "estimated_elo": ELO_TABLE[(STARTING_DEPTH, STARTING_QUALITY)],
+        "calibrated": False,  # True after at least 1 game
+    }
 
 
-def _get_session_copy() -> dict:
+_sessions: dict[str, dict] = {}
+
+
+def _require_session_id(session_id: Optional[str]) -> str:
+    if not session_id or not session_id.strip():
+        raise HTTPException(status_code=400, detail="Missing X-Session-Id header")
+    return session_id.strip()
+
+
+def _get_session_copy(session_id: str) -> dict:
     with _lock:
-        return dict(_session)
+        if session_id not in _sessions:
+            _sessions[session_id] = _new_session_state()
+        return dict(_sessions[session_id])
 
 
-def _update_session(updates: dict) -> None:
+def _update_session(session_id: str, updates: dict) -> None:
     with _lock:
-        _session.update(updates)
+        if session_id not in _sessions:
+            _sessions[session_id] = _new_session_state()
+        _sessions[session_id].update(updates)
+
+
+def _reset_session(session_id: str) -> dict:
+    with _lock:
+        _sessions[session_id] = _new_session_state()
+        return dict(_sessions[session_id])
 
 
 def _advance(depth: int, quality: int) -> tuple[int, int]:
@@ -115,9 +135,10 @@ def get_arena_router(alg_modules: dict) -> APIRouter:
     router = APIRouter(prefix="/arena", tags=["arena"])
     search = alg_modules["search"]
     move_generation = alg_modules["move_generation"]
+    transposition = alg_modules["transposition"]
 
     # ── Helper: multi-PV move selection ─────────────────────
-    def _pick_move_by_quality(board: chess.Board, depth: int, quality_tier: int, engine_is_black: bool):
+    def _pick_move_by_quality(board: chess.Board, depth: int, quality_tier: int, engine_is_black: bool, tt=None):
         """
         Run a full search and return the Nth best move according to quality_tier.
         quality_tier 3 = best, 0 = 4th-best.
@@ -132,7 +153,7 @@ def get_arena_router(alg_modules: dict) -> APIRouter:
 
         if n_to_skip == 0 or len(legal_moves) <= n_to_skip:
             # Just return the best move
-            move, info = search.search_with_info(board, depth, engine_is_black=engine_is_black)
+            move, info = search.search_with_info(board, depth, engine_is_black=engine_is_black, tt=tt)
             return move, info
 
         # Collect best moves one by one by running search with excluded squares
@@ -160,7 +181,7 @@ def get_arena_router(alg_modules: dict) -> APIRouter:
                 pass
 
             candidate, info = search.search_with_info(
-                test_board, depth, engine_is_black=engine_is_black
+                test_board, depth, engine_is_black=engine_is_black, tt=tt
             )
             if candidate is None:
                 break
@@ -173,11 +194,11 @@ def get_arena_router(alg_modules: dict) -> APIRouter:
 
         # If we couldn't get N distinct moves, fall back to best
         if last_move is None:
-            last_move, last_info = search.search_with_info(board, depth, engine_is_black=engine_is_black)
+            last_move, last_info = search.search_with_info(board, depth, engine_is_black=engine_is_black, tt=tt)
 
         return last_move, last_info
 
-    def _pick_nth_best_move(board: chess.Board, depth: int, quality_tier: int, engine_is_black: bool):
+    def _pick_nth_best_move(board: chess.Board, depth: int, quality_tier: int, engine_is_black: bool, tt=None):
         """
         Proper Multi-PV approach: evaluate each legal root move with a full search at (depth - 1).
         Because of the global Transposition Table, searching sibling branches is very fast.
@@ -191,7 +212,7 @@ def get_arena_router(alg_modules: dict) -> APIRouter:
         n_skip = MAX_QUALITY - quality_tier  # quality=3→skip 0 (best), quality=0→skip 3 (4th best)
 
         if n_skip == 0 or len(legal_moves) <= n_skip:
-            return search.search_with_info(board, depth, engine_is_black=engine_is_black)
+            return search.search_with_info(board, depth, engine_is_black=engine_is_black, tt=tt)
 
         import time
         start = time.time()
@@ -244,7 +265,9 @@ def get_arena_router(alg_modules: dict) -> APIRouter:
                     child_info = {"eval_cp": raw, "nodes": 1, "qnodes": 0, "tt_hits": 0, "cutoffs": 0}
                 else:
                     # **CRITICAL**: Use iterative_deepening directly to bypass book/syzygy interceptions at child nodes!
-                    _, value, _, stats, _ = search.iterative_deepening(test, max(1, depth - 1), engine_is_black=False)
+                    _, value, _, stats, _ = search.iterative_deepening(
+                        test, max(1, depth - 1), engine_is_black=False, tt=tt
+                    )
                     child_info = {
                         "eval_cp": value,
                         "nodes": stats.nodes, "qnodes": stats.qnodes, "cutoffs": stats.cutoffs,
@@ -289,27 +312,17 @@ def get_arena_router(alg_modules: dict) -> APIRouter:
 
     # ── GET /arena/session ────────────────────────────────
     @router.get("/session")
-    def get_session():
+    def get_session(x_session_id: Optional[str] = Header(default=None, alias="X-Session-Id")):
         """Return the current arena session state."""
-        return _get_session_copy()
+        sid = _require_session_id(x_session_id)
+        return _get_session_copy(sid)
 
     # ── POST /arena/reset ─────────────────────────────────
     @router.post("/reset")
-    def reset_session():
+    def reset_session(x_session_id: Optional[str] = Header(default=None, alias="X-Session-Id")):
         """Reset the session to baseline (depth 4, quality 0)."""
-        with _lock:
-            _session.update({
-                "depth": STARTING_DEPTH,
-                "quality_tier": STARTING_QUALITY,
-                "games_played": 0,
-                "wins": 0,
-                "losses": 0,
-                "draws": 0,
-                "draw_streak": 0,
-                "estimated_elo": ELO_TABLE[(STARTING_DEPTH, STARTING_QUALITY)],
-                "calibrated": False,
-            })
-        return {"reset": True, "session": _get_session_copy()}
+        sid = _require_session_id(x_session_id)
+        return {"reset": True, "session": _reset_session(sid)}
 
     # ── POST /arena/search ────────────────────────────────
     @router.post("/search")
@@ -329,10 +342,11 @@ def get_arena_router(alg_modules: dict) -> APIRouter:
         # Validate quality tier
         quality_tier = max(0, min(MAX_QUALITY, req.quality_tier))
         depth = max(MIN_DEPTH, min(MAX_DEPTH, req.depth))
+        tt = transposition.TranspositionTable()
 
         try:
             move, info = _pick_nth_best_move(
-                board, depth, quality_tier, req.engine_is_black
+                board, depth, quality_tier, req.engine_is_black, tt=tt
             )
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Search error: {e}")
@@ -357,7 +371,7 @@ def get_arena_router(alg_modules: dict) -> APIRouter:
 
     # ── POST /arena/result ────────────────────────────────
     @router.post("/result")
-    def report_result(req: ArenaResultRequest):
+    def report_result(req: ArenaResultRequest, x_session_id: Optional[str] = Header(default=None, alias="X-Session-Id")):
         """
         Report the outcome of an arena game.
 
@@ -371,7 +385,8 @@ def get_arena_router(alg_modules: dict) -> APIRouter:
           - Loss → stay at same cell
           - Draw → 2 draws in a row → advance one quality tier
         """
-        s = _get_session_copy()
+        sid = _require_session_id(x_session_id)
+        s = _get_session_copy(sid)
         depth = s["depth"]
         quality = s["quality_tier"]
         draw_streak = s["draw_streak"]
@@ -416,7 +431,7 @@ def get_arena_router(alg_modules: dict) -> APIRouter:
             ELO_TABLE.get((MAX_DEPTH, MAX_QUALITY), 2500)
         )
 
-        _update_session({
+        _update_session(sid, {
             "depth": new_depth,
             "quality_tier": new_quality,
             "games_played": games,
@@ -434,7 +449,7 @@ def get_arena_router(alg_modules: dict) -> APIRouter:
             "previous": {"depth": depth, "quality_tier": quality},
             "next": {"depth": new_depth, "quality_tier": new_quality},
             "estimated_elo": new_elo,
-            "session": _get_session_copy(),
+            "session": _get_session_copy(sid),
         }
 
     return router

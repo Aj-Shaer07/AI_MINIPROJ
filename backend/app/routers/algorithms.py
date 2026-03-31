@@ -47,12 +47,17 @@ def get_router(modules: Dict[str, Any]) -> APIRouter:
             raise HTTPException(status_code=400, detail=f"Invalid FEN or history: {e}")
 
 
+    def _new_request_tt():
+        return transposition.TranspositionTable()
+
+
     @router.post("/evaluate")
     def evaluate_position(req: EvalRequest):
         board = _board_from_request(req)
+        tt = _new_request_tt()
         
         # Run a fast shallow search (depth 2) to resolve tactics, captures, AND mate threats
-        _, info_after = search.search_with_info(board, 2, engine_is_black=(board.turn == chess.BLACK))
+        _, info_after = search.search_with_info(board, 2, engine_is_black=(board.turn == chess.BLACK), tt=tt)
         score = info_after.get("eval_cp", 0)
         
         explanation = None
@@ -65,7 +70,7 @@ def get_router(modules: Dict[str, Any]) -> APIRouter:
                 last_move = board_before.parse_san(history_list[-1])
                 
                 # Evaluate the prev position with the same depth 2 search for an accurate diff
-                _, info_before = search.search_with_info(board_before, 2, engine_is_black=(board_before.turn == chess.BLACK))
+                _, info_before = search.search_with_info(board_before, 2, engine_is_black=(board_before.turn == chess.BLACK), tt=tt)
                 prev_eval = info_before.get("eval_cp", 0)
                 
                 if req.is_engine_move:
@@ -76,7 +81,7 @@ def get_router(modules: Dict[str, Any]) -> APIRouter:
                     temp_explanation = explain.analyze_move(board_before, last_move, int(prev_eval), int(score), None, False)
                     if temp_explanation and temp_explanation.get("key") in ["BLUNDER", "GREAT_MOVE"]:
                         # Do a very shallow search to find the engine's preferred move for the "Coach"
-                        best, _ = search.search_with_info(board_before, 4, engine_is_black=False)
+                        best, _ = search.search_with_info(board_before, 4, engine_is_black=False, tt=tt)
                         best_san = board_before.san(best) if best else None
                         explanation = explain.analyze_move(board_before, last_move, int(prev_eval), int(score), best_san, False)
                     else:
@@ -101,9 +106,10 @@ def get_router(modules: Dict[str, Any]) -> APIRouter:
         history = req.history
         results = []
         board = chess.Board()  # start from the initial position
+        tt = _new_request_tt()
 
         # Evaluate position before any move (ply 0 baseline)
-        _, info0 = search.search_with_info(board, 2, engine_is_black=not req.player_is_white)
+        _, info0 = search.search_with_info(board, 2, engine_is_black=not req.player_is_white, tt=tt)
         prev_eval = int(info0.get("eval_cp", 0))
 
         for idx, san in enumerate(history):
@@ -116,11 +122,11 @@ def get_router(modules: Dict[str, Any]) -> APIRouter:
                 is_player_move = is_white_move if req.player_is_white else not is_white_move
 
                 # Current eval after the move
-                _, info_after = search.search_with_info(board_after, 2, engine_is_black=(board_after.turn == chess.BLACK))
+                _, info_after = search.search_with_info(board_after, 2, engine_is_black=(board_after.turn == chess.BLACK), tt=tt)
                 curr_eval = int(info_after.get("eval_cp", 0))
 
                 # Best move from board_before according to engine
-                best_move_obj, _ = search.search_with_info(board_before, 3, engine_is_black=(board_before.turn == chess.BLACK))
+                best_move_obj, _ = search.search_with_info(board_before, 3, engine_is_black=(board_before.turn == chess.BLACK), tt=tt)
                 best_move_san = board_before.san(best_move_obj) if best_move_obj else None
                 best_move_uci = best_move_obj.uci() if best_move_obj else None
 
@@ -253,6 +259,7 @@ def get_router(modules: Dict[str, Any]) -> APIRouter:
     @router.post("/search")
     def search_position(req: SearchRequest):
         board = _board_from_request(req)
+        tt = _new_request_tt()
         
         depth = req.max_depth
         if req.bot_id is not None:
@@ -265,7 +272,7 @@ def get_router(modules: Dict[str, Any]) -> APIRouter:
             }
             depth = bot_depths.get(cast(str, req.bot_id), depth)
 
-        move, info = search.search_with_info(board, depth, engine_is_black=req.engine_is_black)
+        move, info = search.search_with_info(board, depth, engine_is_black=req.engine_is_black, tt=tt)
 
 
         move_uci = move.uci() if move is not None else None
@@ -291,8 +298,10 @@ def get_router(modules: Dict[str, Any]) -> APIRouter:
 
     @router.post("/tt/clear")
     def clear_transposition_table():
-        transposition.clear()
-        return {"cleared": True}
+        return {
+            "cleared": False,
+            "message": "Request-local TT is enabled in API search routes; there is no shared cache to clear.",
+        }
 
 
     @router.get("/tablebase/status")

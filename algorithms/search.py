@@ -15,6 +15,25 @@ LMR_REDUCTION_LIMIT = 3  # minimum depth to start reducing
 DELTA_MARGIN = 200  # Delta pruning margin in quiescence
 
 
+def _tt_lookup(tt, board, depth, alpha, beta, stats):
+    if tt is None:
+        return lookup(board, depth, alpha, beta, stats=stats)
+    return tt.lookup(board, depth, alpha, beta, stats=stats)
+
+
+def _tt_probe_move(tt, board):
+    if tt is None:
+        return probe_move(board)
+    return tt.probe_move(board)
+
+
+def _tt_store(tt, board, depth, score, move, alpha, beta):
+    if tt is None:
+        store(board, depth, score, move, alpha, beta)
+        return
+    tt.store(board, depth, score, move, alpha, beta)
+
+
 # -------------------------------------------------
 # STATS OBJECT
 # -------------------------------------------------
@@ -91,7 +110,7 @@ def quiescence(board, alpha, beta, ply, stats: SearchStats):
 # NEGAMAX SEARCH WITH ALPHA-BETA + PRUNING
 # -------------------------------------------------
 def negamax(board, depth, alpha, beta, ply, check_ext_used, stats,
-            killers, history):
+            killers, history, tt=None):
     """
     Negamax alpha-beta search with:
       - Transposition table probing
@@ -111,7 +130,7 @@ def negamax(board, depth, alpha, beta, ply, check_ext_used, stats,
         return 0, None
 
     # ── TT probe ──
-    cached = lookup(board, depth, alpha, beta, stats=stats)
+    cached = _tt_lookup(tt, board, depth, alpha, beta, stats=stats)
     if cached is not None:
         return cached
 
@@ -129,7 +148,7 @@ def negamax(board, depth, alpha, beta, ply, check_ext_used, stats,
         return quiescence(board, alpha, beta, ply, stats), None
 
     in_check = board.is_check()
-    tt_move = probe_move(board)
+    tt_move = _tt_probe_move(tt, board)
 
     # ── Null Move Pruning ──
     # Skip when: in check, at root, low depth, or very few pieces (zugzwang risk)
@@ -138,7 +157,7 @@ def negamax(board, depth, alpha, beta, ply, check_ext_used, stats,
         board.push(chess.Move.null())
         # Reduced-depth search
         null_score, _ = negamax(board, depth - 3, -beta, -beta + 1, ply + 1,
-                                check_ext_used, stats, killers, history)
+                    check_ext_used, stats, killers, history, tt=tt)
         null_score = -null_score
         board.pop()
 
@@ -180,7 +199,7 @@ def negamax(board, depth, alpha, beta, ply, check_ext_used, stats,
         if moves_searched == 0:
             # First move: full window search
             value, _ = negamax(board, new_depth, -beta, -alpha, ply + 1,
-                               new_ext, stats, killers, history)
+                               new_ext, stats, killers, history, tt=tt)
             value = -value
         else:
             # ── Late Move Reductions ──
@@ -196,19 +215,19 @@ def negamax(board, depth, alpha, beta, ply, check_ext_used, stats,
 
             # Zero-window search (PVS) with possible LMR
             value, _ = negamax(board, new_depth - reduction, -alpha - 1, -alpha,
-                               ply + 1, new_ext, stats, killers, history)
+                               ply + 1, new_ext, stats, killers, history, tt=tt)
             value = -value
 
             # Re-search at full depth if LMR search improved alpha
             if reduction > 0 and value > alpha:
                 value, _ = negamax(board, new_depth, -alpha - 1, -alpha,
-                                   ply + 1, new_ext, stats, killers, history)
+                                   ply + 1, new_ext, stats, killers, history, tt=tt)
                 value = -value
 
             # Re-search with full window if zero-window failed high
             if value > alpha and value < beta:
                 value, _ = negamax(board, new_depth, -beta, -alpha,
-                                   ply + 1, new_ext, stats, killers, history)
+                                   ply + 1, new_ext, stats, killers, history, tt=tt)
                 value = -value
 
         board.pop()
@@ -237,7 +256,7 @@ def negamax(board, depth, alpha, beta, ply, check_ext_used, stats,
                         killers[ply].pop()
             break
 
-    store(board, depth, best_value, best_move, original_alpha, beta)
+    _tt_store(tt, board, depth, best_value, best_move, original_alpha, beta)
     return best_value, best_move
 
 
@@ -253,7 +272,7 @@ def _has_non_pawn_material(board):
 # -------------------------------------------------
 # ITERATIVE DEEPENING WITH ASPIRATION WINDOWS
 # -------------------------------------------------
-def iterative_deepening(board, max_depth, engine_is_black=True):
+def iterative_deepening(board, max_depth, engine_is_black=True, tt=None):
     stats = SearchStats()
     start = time.time()
 
@@ -303,6 +322,7 @@ def iterative_deepening(board, max_depth, engine_is_black=True):
             stats=stats,
             killers=killers,
             history=history,
+            tt=tt,
         )
 
         # Re-search with full window on fail-low or fail-high
@@ -317,6 +337,7 @@ def iterative_deepening(board, max_depth, engine_is_black=True):
                 stats=stats,
                 killers=killers,
                 history=history,
+                tt=tt,
             )
 
         if move is not None:
@@ -340,7 +361,7 @@ def iterative_deepening(board, max_depth, engine_is_black=True):
 # -------------------------------------------------
 # UI HELPER (FOR GUI / TERMINAL)
 # -------------------------------------------------
-def search_with_info(board, max_depth, engine_is_black=True):
+def search_with_info(board, max_depth, engine_is_black=True, tt=None):
     # ── Opening book lookup ──
     # Use the Polyglot opening book for the first part of the game.
     # Weighted-random selection gives varied, natural play.
@@ -404,7 +425,7 @@ def search_with_info(board, max_depth, engine_is_black=True):
             return tb_move, info
 
     move, value, depth, stats, elapsed = iterative_deepening(
-        board, max_depth, engine_is_black=engine_is_black
+        board, max_depth, engine_is_black=engine_is_black, tt=tt
     )
 
     if move is None:
@@ -412,8 +433,7 @@ def search_with_info(board, max_depth, engine_is_black=True):
         if legal_moves:
             # Fallback to the first available legal move or probe TT
             try:
-                from algorithms.transposition import probe_move
-                probe = probe_move(board)
+                probe = _tt_probe_move(tt, board)
                 move = probe if probe in legal_moves else legal_moves[0]
             except Exception:
                 move = legal_moves[0]
