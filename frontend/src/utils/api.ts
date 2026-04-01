@@ -1,4 +1,4 @@
-const BACKEND_URL = "/api"
+const BACKEND_URL = "https://api.jeetumodi.me"
 
 
 function getArenaSessionId(): string {
