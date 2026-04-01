@@ -258,24 +258,36 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             final isLight = (row + col).isEven;
             final symbol = _pieceSymbol(row, col);
             final isWhite = row >= 6;
-            final pieceColor = isWhite
-                ? const Color(0xFFFAF7EE)
-                : const Color(0xFF1B1B1B);
 
             return Container(
               color: isLight
                   ? const Color(0xFFE9D7B8)
                   : const Color(0xFFB38963),
-              child: Center(
-                child: Text(
-                  symbol,
-                  style: AppTextStyles.titleLarge.copyWith(
-                    color: pieceColor,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 26,
-                  ),
-                ),
-              ),
+              child: symbol.isEmpty
+                  ? const SizedBox()
+                  : Center(
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          // Outline
+                          Text(
+                            symbol,
+                            style: ChessPieces.getPieceOutlineStyle(
+                              fontSize: 22,
+                              isWhite: isWhite,
+                            ),
+                          ),
+                          // Fill
+                          Text(
+                            symbol,
+                            style: ChessPieces.getPieceStyle(
+                              fontSize: 22,
+                              isWhite: isWhite,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
             );
           },
         ),

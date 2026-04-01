@@ -58,9 +58,26 @@ class PromotionDialog extends StatelessWidget {
           border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
         ),
         child: Center(
-          child: Text(
-            ChessPieces.getSymbol(pieceChar, isWhite),
-            style: const TextStyle(fontSize: 36),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              // Outline
+              Text(
+                ChessPieces.getSymbol(pieceChar, isWhite),
+                style: ChessPieces.getPieceOutlineStyle(
+                  fontSize: 40,
+                  isWhite: isWhite,
+                ),
+              ),
+              // Fill
+              Text(
+                ChessPieces.getSymbol(pieceChar, isWhite),
+                style: ChessPieces.getPieceStyle(
+                  fontSize: 40,
+                  isWhite: isWhite,
+                ),
+              ),
+            ],
           ),
         ),
       ),

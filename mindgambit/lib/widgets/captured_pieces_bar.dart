@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../core/constants.dart';
-import '../theme/app_colors.dart';
 
 /// Displays captured pieces for a side.
 class CapturedPiecesBar extends StatelessWidget {
@@ -29,14 +28,29 @@ class CapturedPiecesBar extends StatelessWidget {
       height: 24,
       child: Row(
         children: sorted.map((p) {
+          final symbol = ChessPieces.getSymbol(p, isWhitePieces);
           return Padding(
-            padding: const EdgeInsets.only(right: 2),
-            child: Text(
-              ChessPieces.getSymbol(p, isWhitePieces),
-              style: TextStyle(
-                fontSize: 18,
-                color: AppColors.textSecondary.withValues(alpha: 0.8),
-              ),
+            padding: const EdgeInsets.only(right: 6),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // Outline for better visibility in small sizes
+                Text(
+                  symbol,
+                  style: ChessPieces.getPieceOutlineStyle(
+                    fontSize: 16,
+                    isWhite: isWhitePieces,
+                  ),
+                ),
+                // Fill
+                Text(
+                  symbol,
+                  style: ChessPieces.getPieceStyle(
+                    fontSize: 16,
+                    isWhite: isWhitePieces,
+                  ),
+                ),
+              ],
             ),
           );
         }).toList(),

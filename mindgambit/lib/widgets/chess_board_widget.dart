@@ -26,6 +26,18 @@ class ChessBoardWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Precompute sets to cut per-square work during rebuilds.
+    final legalTargets = <int>{
+      for (final m in legalMoves) _algebraicToIndex(m.toAlgebraic),
+    };
+    final lastFrom = lastMove != null
+        ? _algebraicToIndex(lastMove!.fromAlgebraic)
+        : null;
+    final lastTo = lastMove != null
+        ? _algebraicToIndex(lastMove!.toAlgebraic)
+        : null;
+    final inCheck = board.in_check;
+
     return AspectRatio(
       aspectRatio: 1.0,
       child: LayoutBuilder(
@@ -63,6 +75,10 @@ class ChessBoardWidget extends StatelessWidget {
                         squareSize: squareSize,
                         row: row,
                         col: col,
+                        legalTargets: legalTargets,
+                        lastFrom: lastFrom,
+                        lastTo: lastTo,
+                        inCheck: inCheck,
                       );
                     }),
                   );
@@ -83,16 +99,17 @@ class ChessBoardWidget extends StatelessWidget {
     required double squareSize,
     required int row,
     required int col,
+    required Set<int> legalTargets,
+    required int? lastFrom,
+    required int? lastTo,
+    required bool inCheck,
   }) {
     Color bgColor = isLight ? AppColors.boardLight : AppColors.boardDark;
 
     // Last move highlight
-    if (lastMove != null) {
-      final fromSq = _algebraicToIndex(lastMove!.fromAlgebraic);
-      final toSq = _algebraicToIndex(lastMove!.toAlgebraic);
-      if (squareIndex == fromSq || squareIndex == toSq) {
-        bgColor = Color.lerp(bgColor, AppColors.primary, 0.3)!;
-      }
+    if (lastFrom != null &&
+        (squareIndex == lastFrom || squareIndex == lastTo)) {
+      bgColor = Color.lerp(bgColor, AppColors.primary, 0.3)!;
     }
 
     // Selected square highlight
@@ -105,7 +122,7 @@ class ChessBoardWidget extends StatelessWidget {
     final sqName = _indexToAlgebraic(squareIndex);
     final pieceAtSquare = board.get(sqName);
 
-    if (board.in_check) {
+    if (inCheck) {
       final kingColor = board.turn;
       if (pieceAtSquare != null &&
           pieceAtSquare.type == chess.PieceType.KING &&
@@ -115,9 +132,7 @@ class ChessBoardWidget extends StatelessWidget {
     }
 
     // Legal move indicator
-    final isLegalTarget = legalMoves.any(
-      (m) => _algebraicToIndex(m.toAlgebraic) == squareIndex,
-    );
+    final isLegalTarget = legalTargets.contains(squareIndex);
 
     return GestureDetector(
       onTap: enabled ? () => onSquareTapped(squareIndex) : null,
@@ -191,38 +206,32 @@ class ChessBoardWidget extends StatelessWidget {
     );
   }
 
-  /// Build a piece widget with clear black/white distinction.
+  /// Build a piece widget with clear black/white distinction and Android optimizations.
   Widget _buildPiece(chess.Piece piece, double squareSize) {
     final isWhite = piece.color == chess.Color.WHITE;
     final symbol = ChessPieces.getSymbol(piece.type.toString(), isWhite);
-    final fill = isWhite ? const Color(0xFFF7F7F7) : const Color(0xFF121212);
-    final outline = isWhite
-        ? const Color(0xFF1E1E1E)
-        : const Color(0xFFE7D7BA);
+    final fontSize = squareSize * 0.75; // Standard size for better clarity
 
     // Two-pass text render: crisp outline + fill for reliable contrast.
     return Stack(
       alignment: Alignment.center,
       children: [
+        // Outline pass (stroke)
         Text(
           symbol,
           textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: squareSize * 0.74,
-            height: 1.0,
-            foreground: Paint()
-              ..style = PaintingStyle.stroke
-              ..strokeWidth = 1.2
-              ..color = outline,
+          style: ChessPieces.getPieceOutlineStyle(
+            fontSize: fontSize,
+            isWhite: isWhite,
           ),
         ),
+        // Fill pass (solid color)
         Text(
           symbol,
           textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: squareSize * 0.74,
-            height: 1.0,
-            color: fill,
+          style: ChessPieces.getPieceStyle(
+            fontSize: fontSize,
+            isWhite: isWhite,
           ),
         ),
       ],
