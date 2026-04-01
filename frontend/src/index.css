@@ -225,10 +225,12 @@ button {
 .analysis-page {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 48px);
+  min-height: calc(100vh - 48px);
+  height: auto;
   background: var(--bg-primary);
   color: var(--text-primary);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .analysis-header {
@@ -891,9 +893,186 @@ button {
   width: 100%;
   justify-content: center;
   margin-top: 10px;
+  flex-wrap: wrap;
 }
 
 .btn-large {
   padding: 14px 30px;
   font-size: 1.1rem;
+}
+
+@media (max-width: 1100px) {
+  .analysis-layout {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+
+  .analysis-center {
+    order: 1;
+    padding: 1rem 0.75rem;
+  }
+
+  .analysis-left {
+    order: 2;
+    border-right: none;
+    border-top: 1px solid var(--bg-elevated);
+  }
+
+  .analysis-right {
+    order: 3;
+    border-left: none;
+    border-top: 1px solid var(--bg-elevated);
+    max-height: 340px;
+  }
+
+  .analysis-board-wrap {
+    --square-size: clamp(42px, 10.5vw, 68px);
+  }
+
+  .analysis-controls {
+    width: min(100%, calc(var(--square-size) * 8));
+    justify-content: center;
+  }
+
+  .ctrl-ply {
+    min-width: 0;
+    flex: 1;
+  }
+}
+
+@media (max-width: 768px) {
+  .analysis-header {
+    padding: 0.7rem 0.75rem;
+    gap: 0.5rem;
+  }
+
+  .analysis-title {
+    font-size: 1rem;
+  }
+
+  .analysis-meta {
+    min-width: 0;
+    font-size: 0.75rem;
+  }
+
+  .analysis-board-wrap {
+    --square-size: clamp(36px, 11.5vw, 56px);
+  }
+
+  .analysis-controls {
+    gap: 4px;
+    padding: 6px 8px;
+  }
+
+  .ctrl-btn {
+    font-size: 15px;
+    padding: 4px 6px;
+  }
+
+  .ctrl-ply {
+    font-size: 11px;
+  }
+
+  .horse-popup {
+    right: 12px;
+    left: 12px;
+    bottom: 12px;
+    width: auto;
+    justify-content: flex-end;
+  }
+
+  .horse-bubble {
+    max-width: min(70vw, 240px);
+  }
+
+  .arena-page {
+    padding: 1rem 0.75rem 1.25rem;
+    gap: 1rem;
+  }
+
+  .arena-title {
+    font-size: clamp(1.6rem, 8vw, 2.2rem);
+  }
+
+  .elo-number {
+    font-size: clamp(2.2rem, 13vw, 3rem);
+  }
+
+  .arena-elo-card {
+    padding: 1rem 0.75rem;
+    gap: 0.9rem;
+  }
+
+  .arena-difficulty {
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 0.8rem;
+  }
+
+  .difficulty-divider {
+    width: 100%;
+    height: 1px;
+  }
+
+  .arena-record-row {
+    flex-wrap: wrap;
+    gap: 0.6rem;
+  }
+
+  .record-stat {
+    min-width: calc(50% - 0.3rem);
+    padding: 0.7rem 0.5rem;
+  }
+
+  .arena-ladder {
+    padding: 0.75rem 0.5rem;
+  }
+
+  .ladder-title {
+    margin-bottom: 0.8rem;
+    font-size: 1.05rem;
+  }
+
+  .ladder-row {
+    grid-template-columns: 58px repeat(4, minmax(0, 1fr));
+    gap: 4px;
+  }
+
+  .ladder-depth {
+    text-align: left;
+    padding-right: 0;
+    font-size: 0.76rem;
+  }
+
+  .ladder-cell {
+    min-height: 50px;
+    padding: 6px 4px;
+  }
+
+  .cell-elo {
+    font-size: 0.86rem;
+  }
+
+  .cell-q {
+    font-size: 0.62rem;
+  }
+
+  .cell-arrow {
+    display: none;
+  }
+
+  .arena-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.55rem;
+  }
+
+  .arena-actions .btn {
+    width: 100%;
+  }
+
+  .btn-large {
+    padding: 11px 14px;
+    font-size: 0.95rem;
+  }
 }
