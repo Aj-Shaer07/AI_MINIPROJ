@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { arenaGetSession, arenaResetSession, type ArenaSession } from '../utils/api'
+import { TIME_OPTIONS, INCREMENT_OPTIONS, COLOR_OPTIONS, DEFAULT_SETTINGS } from '../values'
 
 // ── ELO Ladder table (mirrors backend) ──────────────────
 const QUALITY_LABELS = ['4th Best', '3rd Best', '2nd Best', 'Best Move']
@@ -22,9 +23,17 @@ export default function Arena() {
   const [loading, setLoading] = useState(true)
   const [resetting, setResetting] = useState(false)
   const [resultMsg, setResultMsg] = useState<string | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+
+  // ── Game settings (mirrors Landing.tsx) ──────────────────
+  const [timeControl, setTimeControl] = useState(DEFAULT_SETTINGS.timeControl)
+  const [increment, setIncrement] = useState(DEFAULT_SETTINGS.increment)
+  const [playerColor, setPlayerColor] = useState<'white' | 'black'>(DEFAULT_SETTINGS.playerColor)
+  const [showPlayerClock, setShowPlayerClock] = useState(DEFAULT_SETTINGS.showPlayerClock)
+  const [showEngineClock, setShowEngineClock] = useState(DEFAULT_SETTINGS.showEngineClock)
+  const [enableCoachMode, setEnableCoachMode] = useState(DEFAULT_SETTINGS.enableCoachMode)
 
   useEffect(() => {
-    // Load session — also check if we just came back from a game with a result
     const params = new URLSearchParams(window.location.search)
     const msgParam = params.get('msg')
     if (msgParam) setResultMsg(decodeURIComponent(msgParam))
@@ -36,11 +45,9 @@ export default function Arena() {
 
   const handleStartGame = async () => {
     if (!session) return
-    // Navigate to the game page in arena mode
-    // The engine depth and quality tier are passed as URL params
-    // The game page will use /arena/search instead of /search
     navigate(
-      `/game?time=10&inc=0&color=white&pclock=true&eclock=true&coach=false` +
+      `/game?time=${timeControl}&inc=${increment}&color=${playerColor}` +
+      `&pclock=${showPlayerClock}&eclock=${showEngineClock}&coach=${enableCoachMode}` +
       `&arena=true&depth=${session.depth}&quality_tier=${session.quality_tier}`
     )
   }
@@ -172,6 +179,109 @@ export default function Arena() {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* ── Game Settings (collapsible) ───────────────────────── */}
+      <div className="arena-settings-section">
+        <button
+          className="arena-settings-toggle"
+          onClick={() => setSettingsOpen(o => !o)}
+          aria-expanded={settingsOpen}
+        >
+          <span>⚙ Game Settings</span>
+          <span className="settings-toggle-hint">
+            {playerColor === 'white' ? '♔ White' : '♚ Black'} · {timeControl}m+{increment}s
+            {enableCoachMode ? ' · Coach ON' : ''}
+          </span>
+          <span className="settings-chevron">{settingsOpen ? '▲' : '▼'}</span>
+        </button>
+
+        {settingsOpen && (
+          <div className="arena-settings-panel">
+            {/* Play As */}
+            <div className="settings-section">
+              <label className="settings-label">Play As</label>
+              <div className="button-group">
+                {COLOR_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    className={`group-btn ${playerColor === opt.value ? 'active' : ''}`}
+                    onClick={() => setPlayerColor(opt.value as 'white' | 'black')}
+                  >
+                    <div className={`color-dot ${opt.value}`} />
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Time Control */}
+            <div className="settings-section">
+              <label className="settings-label">Time Control</label>
+              <div className="button-group">
+                {TIME_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    className={`group-btn ${timeControl === opt.value ? 'active' : ''}`}
+                    onClick={() => setTimeControl(opt.value)}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Increment */}
+            <div className="settings-section">
+              <label className="settings-label">Increment (per move)</label>
+              <div className="button-group">
+                {INCREMENT_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    className={`group-btn ${increment === opt.value ? 'active' : ''}`}
+                    onClick={() => setIncrement(opt.value)}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Options */}
+            <div className="settings-section">
+              <label className="settings-label">Options</label>
+              <div className="checkbox-group">
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={showPlayerClock}
+                    onChange={e => setShowPlayerClock(e.target.checked)}
+                  />
+                  <span className="checkbox-custom" />
+                  Player Clock
+                </label>
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={showEngineClock}
+                    onChange={e => setShowEngineClock(e.target.checked)}
+                  />
+                  <span className="checkbox-custom" />
+                  Engine Clock
+                </label>
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={enableCoachMode}
+                    onChange={e => setEnableCoachMode(e.target.checked)}
+                  />
+                  <span className="checkbox-custom" />
+                  Coach Mode (Explainable AI)
+                </label>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Actions ──────────────────────────────────────────── */}
