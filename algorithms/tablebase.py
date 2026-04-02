@@ -74,9 +74,11 @@ def tablebase_move_for_root(board: chess.Board):
     if wdl is None:
         return None
 
+    import math
     best_move = None
-    best_key = (-999, 9999)
+    best_key = -math.inf
     for move in board.legal_moves:
+        is_zeroing = board.is_zeroing(move)
         board.push(move)
         try:
             child_wdl = _tablebase.get_wdl(board, default=None)
@@ -86,28 +88,29 @@ def tablebase_move_for_root(board: chess.Board):
                 dtz = _tablebase.probe_dtz_no_ep(board)
             except Exception:
                 dtz = 9999
-            score = -child_wdl
+            wdl = -child_wdl
 
-            # In WINNING positions, deprioritize moves that cause a
-            # repetition so the engine makes progress instead of looping.
-            # In DRAWN positions, repetitions are fine (draw by repetition
-            # is the correct outcome).
+            # Penalize repetition in winning spots so we make progress
             is_repeat = board.is_repetition(2)
-            if is_repeat and score > 0:
-                # Demote to "barely winning" so any non-repeating win
-                # is preferred, but this is still better than a draw (0)
-                # or a loss (-1/-2). We keep score > 0 so we don't
-                # accidentally prefer a draw over a repeating win.
-                score = 0  # treat repeating win as a draw-level move
-                sort_dtz = 9998  # worst among equal-score moves
+            if is_repeat and wdl > 0:
+                wdl = 0
+                dtz = -9998
+            
+            # WDL bounds: Win > 0, Draw == 0, Loss < 0
+            # Child DTZ: If we are winning, opponent is losing, so child DTZ is negative.
+            # To pick the fastest win, we want to maximize child DTZ (e.g. -1 > -5).
+            # If we are losing, opponent is winning, so child DTZ is positive.
+            # To delay the loss, we want to maximize child DTZ (e.g. 50 > 5).
+            if wdl > 0:
+                base = 20000 if is_zeroing else 10000
+                key = base + wdl * 1000 + dtz
+            elif wdl == 0:
+                key = dtz
             else:
-                # Normal DTZ sorting
-                if score > 0:
-                    sort_dtz = -abs(dtz)  # fastest win first
-                else:
-                    sort_dtz = abs(dtz)   # slowest loss first
+                # If losing, AVOID zeroing moves to delay reaching zero via 50-move rule
+                base = -20000 if is_zeroing else -10000
+                key = base + wdl * 1000 + dtz
 
-            key = (score, sort_dtz)
             if key > best_key:
                 best_key = key
                 best_move = move

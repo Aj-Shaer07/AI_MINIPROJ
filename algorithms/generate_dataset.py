@@ -105,6 +105,12 @@ def evaluate_positions(num_positions, sf_depth=12):
             skipped += 1
             continue
 
+        # Enforce strict Quiescence (No checks, no legal captures for side to move)
+        # to ensure static piece values actually matter.
+        if board.is_check() or any(board.is_capture(m) for m in board.legal_moves):
+            skipped += 1
+            continue
+
         # Skip duplicate positions
         fen = board.fen()
         fen_key = " ".join(fen.split()[:4])  # position only, no clocks

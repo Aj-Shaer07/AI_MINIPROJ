@@ -211,8 +211,14 @@ CONNECTED_PASSER_BONUS = 30     # EG bonus for two passed pawns on adjacent file
 # King pawn-shield bonus (for pawns directly in front of castled king)
 KING_SHIELD_BONUS = 10
 
-# Hanging piece penalty
-HANGING_PENALTY_RATIO = 0.5
+# Hanging piece penalties (now dynamically tuned instead of a fixed ratio)
+HANGING_KNIGHT_PENALTY = 160
+HANGING_BISHOP_PENALTY = 165
+HANGING_ROOK_PENALTY = 250
+HANGING_QUEEN_PENALTY = 450
+
+# Endgame King pursuit of passed pawns multiplier
+KING_PROXIMITY_MULT = 1.0
 
 # ─────────────────────────────────────────────────────────
 # AUTO-LOAD TUNED WEIGHTS (from Texel Tuning)
@@ -363,7 +369,8 @@ def evaluate(board, ply=0):
                     own_dist = _chebyshev_distance(own_king, sq)
                     opp_dist = _chebyshev_distance(opp_king, sq)
                     # Bonus: opponent far from passer, our king close
-                    eg_score += sign * (opp_dist * 5 - own_dist * 3)
+                    proxy_val = opp_dist * 5 - own_dist * 3
+                    eg_score += sign * int(proxy_val * KING_PROXIMITY_MULT)
 
             pawn_files.add(f)
 
@@ -424,10 +431,14 @@ def evaluate(board, ply=0):
         sign = 1 if color == chess.WHITE else -1
         enemy = not color
         for piece_type in (chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN):
-            val = PIECE_VALUES[piece_type]
+            if piece_type == chess.KNIGHT: penalty = HANGING_KNIGHT_PENALTY
+            elif piece_type == chess.BISHOP: penalty = HANGING_BISHOP_PENALTY
+            elif piece_type == chess.ROOK: penalty = HANGING_ROOK_PENALTY
+            elif piece_type == chess.QUEEN: penalty = HANGING_QUEEN_PENALTY
+            else: penalty = 0
+
             for sq in board.pieces(piece_type, color):
                 if board.is_attacked_by(enemy, sq) and not board.is_attacked_by(color, sq):
-                    penalty = int(val * HANGING_PENALTY_RATIO)
                     mg_score -= sign * penalty
                     eg_score -= sign * penalty
 
