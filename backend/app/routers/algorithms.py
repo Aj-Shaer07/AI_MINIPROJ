@@ -264,11 +264,11 @@ def get_router(modules: Dict[str, Any]) -> APIRouter:
         depth = req.max_depth
         if req.bot_id is not None:
             bot_depths = {
-                "bot1": 2,
-                "bot2": 3,
+                "bot1": 3,
+                "bot2": 5,
                 "bot3": 4,
-                "bot4": 5,
-                "bot5": 7,
+                "bot4": 7,
+                "bot5": 6,
             }
             depth = bot_depths.get(cast(str, req.bot_id), depth)
 
