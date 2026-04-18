@@ -267,6 +267,51 @@
   overflow: hidden;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
   background: var(--border-subtle);
+  position: relative;
+}
+
+/* ─── Promotion Picker Overlay ─── */
+.promotion-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  backdrop-filter: blur(2px);
+}
+
+.promotion-picker {
+  display: flex;
+  gap: 0.5rem;
+  background: var(--bg-secondary);
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--border-medium);
+}
+
+.promotion-piece {
+  width: 64px;
+  height: 64px;
+  font-size: 2.8rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elevated);
+  border: 2px solid var(--border-subtle);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.promotion-piece:hover {
+  background: var(--accent-green);
+  border-color: var(--accent-green);
+  transform: scale(1.1);
+  box-shadow: 0 4px 16px rgba(84, 196, 129, 0.35);
 }
 
 /* ─── Player Bars (Top & Bottom of Board) ─── */

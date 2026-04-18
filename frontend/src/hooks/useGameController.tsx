@@ -62,6 +62,7 @@ export default function useGameController(opts: UseGameControllerOpts = {}) {
   const [board, setBoard] = useState<BoardState>(fenToBoard(gameRef.current.fen()))
   const [lastMove, setLastMove] = useState<[number, number, number, number] | null>(null)
   const [possibleMoves, setPossibleMoves] = useState<Array<[number, number]>>([])
+  const [pendingPromotion, setPendingPromotion] = useState<{ from: string; to: string; toCoords: [number, number] } | null>(null)
   const [evalCp, setEvalCp] = useState<number>(0)
   const [evalInfo, setEvalInfo] = useState<any>(null)
   // Split history into a plain string array — we keep our own copy so React always
@@ -254,9 +255,18 @@ export default function useGameController(opts: UseGameControllerOpts = {}) {
 
     const fromSq = coordsToSquare(fromR, fromC)
     const toSq = coordsToSquare(toR, toC)
+
+    // Check if this is a promotion move
+    const g = new Chess(gameRef.current.fen())
+    const legalMoves = g.moves({ square: fromSq as any, verbose: true })
+    const isPromo = legalMoves.some(m => m.to === toSq && m.promotion)
+    if (isPromo) {
+      setPendingPromotion({ from: fromSq, to: toSq, toCoords: [toR, toC] })
+      return
+    }
+
     try {
-      const g = new Chess(gameRef.current.fen())
-      const move = g.move({ from: fromSq, to: toSq, promotion: 'q' })
+      const move = g.move({ from: fromSq, to: toSq })
       gameRef.current = g
       syncDisplayState(g, move)
       if (playerColor === 'white') setWhiteTime(t => t + incrementSec * 1000)
@@ -265,6 +275,23 @@ export default function useGameController(opts: UseGameControllerOpts = {}) {
       console.warn('Illegal move attempted')
     }
   }, [turn, playerColor, incrementSec, gameOverReason])
+
+  const confirmPromotion = useCallback((piece: 'q' | 'r' | 'b' | 'n') => {
+    if (!pendingPromotion) return
+    try {
+      const g = new Chess(gameRef.current.fen())
+      const move = g.move({ from: pendingPromotion.from, to: pendingPromotion.to, promotion: piece })
+      gameRef.current = g
+      syncDisplayState(g, move)
+      if (playerColor === 'white') setWhiteTime(t => t + incrementSec * 1000)
+      else setBlackTime(t => t + incrementSec * 1000)
+    } catch {
+      console.warn('Illegal promotion attempted')
+    }
+    setPendingPromotion(null)
+  }, [pendingPromotion, playerColor, incrementSec])
+
+  const cancelPromotion = useCallback(() => setPendingPromotion(null), [])
 
   const resign = useCallback(() => setGameOverReason('resign'), [])
   const clearPremove = useCallback(() => setPremove(null), [])
@@ -283,9 +310,12 @@ export default function useGameController(opts: UseGameControllerOpts = {}) {
     premove,
     gameOverReason,
     explanationData,
+    pendingPromotion,
     setPossibleMoves,
     getLegalMoves,
     movePiece,
+    confirmPromotion,
+    cancelPromotion,
     clearPremove,
     resign,
   }

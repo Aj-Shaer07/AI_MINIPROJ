@@ -185,6 +185,28 @@ export default function Game() {
               onSquareClick={handleSquareClick}
               onRightClick={gc.clearPremove}
             />
+            {gc.pendingPromotion && (
+              <div className="promotion-overlay" onClick={gc.cancelPromotion}>
+                <div className="promotion-picker" onClick={e => e.stopPropagation()}>
+                  {(['q', 'r', 'b', 'n'] as const).map(p => {
+                    const isWhite = settings.playerColor === 'white'
+                    const symbols: Record<string, string> = isWhite
+                      ? { q: '♕', r: '♖', b: '♗', n: '♘' }
+                      : { q: '♛', r: '♜', b: '♝', n: '♞' }
+                    return (
+                      <button
+                        key={p}
+                        className="promotion-piece"
+                        onClick={() => gc.confirmPromotion(p)}
+                        title={p === 'q' ? 'Queen' : p === 'r' ? 'Rook' : p === 'b' ? 'Bishop' : 'Knight'}
+                      >
+                        {symbols[p]}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Bottom Player (You) */}
