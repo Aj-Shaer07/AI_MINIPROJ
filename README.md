@@ -29,23 +29,6 @@ cd AI_MINIPROJ
 git branch -a
 ```
 
-### Checkout any branch
-
-Use `git checkout <branch-name>` to move between branches at any time.
-
-```bash
-git checkout webapp
-git checkout Flutter-apk
-```
-
-If a branch is only on the remote, fetch it first and create a local tracking branch:
-
-```bash
-git fetch origin
-git checkout -b webapp origin/webapp
-git checkout -b Flutter-apk origin/Flutter-apk
-```
-
 ### Update your local copy
 
 ```bash
@@ -58,7 +41,6 @@ git pull origin Flutter-apk
 ```bash
 git status
 git branch
-git log --oneline --max-count=10
 ```
 
 Use the Git commands above before following the WebApp or Flutter run instructions.
@@ -106,6 +88,19 @@ AI_MINIPROJ/
 ### WebApp Branch
 
 Use the `webapp` branch for the browser-based project.
+
+#### Switch to the webapp branch
+
+```bash
+git checkout webapp
+```
+
+If the branch is only on the remote:
+
+```bash
+git fetch origin
+git checkout -b webapp origin/webapp
+```
 
 #### Prerequisites
 
@@ -185,6 +180,19 @@ npm run build
 ### Flutter-apk Branch
 
 Use the `Flutter-apk` branch for the Flutter app and APK build.
+
+#### Switch to the Flutter-apk branch
+
+```bash
+git checkout Flutter-apk
+```
+
+If the branch is only on the remote:
+
+```bash
+git fetch origin
+git checkout -b Flutter-apk origin/Flutter-apk
+```
 
 #### Prerequisites
 
