@@ -1,3 +1,51 @@
+"""
+Evaluation Module — PeSTO Tapered Evaluation
+=============================================
+Scores any board position in centipawns (positive = White advantage).
+
+Uses a **tapered evaluation** that smoothly blends middlegame and endgame
+scoring based on remaining material (game phase = 0–24).
+
+Evaluation components:
+- **Material**:            Tuned piece values (MG/EG separate)
+- **Piece-Square Tables**: 12 PeSTO-style tables (6 pieces × 2 phases = 768 values)
+- **Pawn Structure**:      Doubled, isolated, passed, connected passers,
+                           rook behind passer, king proximity to passers
+- **Bishop Pair**:         +30 cp bonus for having both bishops
+- **Rook Activity**:       Open file (+25) and semi-open file (+12) bonuses
+- **King Safety**:         Pawn shield bonus (middlegame only)
+- **Hanging Pieces**:      Penalties for undefended attacked pieces
+- **Mop-Up**:              Endgame king pursuit (push losing king to edge)
+- **Specialist Endgames**: KBN vs K (correct corner) and KBB vs K evaluators
+- **50-Move Decay**:       Score reduction as halfmove clock approaches 50
+
+Total tunable parameters: **803** (10 material + 768 PST + 25 bonuses),
+optimized via Texel tuning (see texel_tuning.py).
+"""
+"""
+Evaluation Module — PeSTO Tapered Evaluation
+=============================================
+Scores any board position in centipawns (positive = White advantage).
+
+Uses a **tapered evaluation** that smoothly blends middlegame and endgame
+scoring based on remaining material (game phase = 0–24).
+
+Evaluation components:
+- **Material**:            Tuned piece values (MG/EG separate)
+- **Piece-Square Tables**: 12 PeSTO-style tables (6 pieces × 2 phases = 768 values)
+- **Pawn Structure**:      Doubled, isolated, passed, connected passers,
+                           rook behind passer, king proximity to passers
+- **Bishop Pair**:         +30 cp bonus for having both bishops
+- **Rook Activity**:       Open file (+25) and semi-open file (+12) bonuses
+- **King Safety**:         Pawn shield bonus (middlegame only)
+- **Hanging Pieces**:      Penalties for undefended attacked pieces
+- **Mop-Up**:              Endgame king pursuit (push losing king to edge)
+- **Specialist Endgames**: KBN vs K (correct corner) and KBB vs K evaluators
+- **50-Move Decay**:       Score reduction as halfmove clock approaches 50
+
+Total tunable parameters: **803** (10 material + 768 PST + 25 bonuses),
+optimized via Texel tuning (see texel_tuning.py).
+"""
 import chess
 
 MATE_SCORE = 100000
@@ -219,27 +267,6 @@ HANGING_QUEEN_PENALTY = 450
 
 # Endgame King pursuit of passed pawns multiplier
 KING_PROXIMITY_MULT = 1.0
-
-# ─────────────────────────────────────────────────────────
-# AUTO-LOAD TUNED WEIGHTS (from Texel Tuning)
-# If algorithms/tuned_weights.py exists, override defaults
-# ─────────────────────────────────────────────────────────
-try:
-    from algorithms.tuned_weights import *  # noqa: F401,F403
-    # Rebuild PST dictionaries with tuned tables
-    MG_PST = {
-        chess.PAWN: MG_PAWN_TABLE, chess.KNIGHT: MG_KNIGHT_TABLE,
-        chess.BISHOP: MG_BISHOP_TABLE, chess.ROOK: MG_ROOK_TABLE,
-        chess.QUEEN: MG_QUEEN_TABLE, chess.KING: MG_KING_TABLE,
-    }
-    EG_PST = {
-        chess.PAWN: EG_PAWN_TABLE, chess.KNIGHT: EG_KNIGHT_TABLE,
-        chess.BISHOP: EG_BISHOP_TABLE, chess.ROOK: EG_ROOK_TABLE,
-        chess.QUEEN: EG_QUEEN_TABLE, chess.KING: EG_KING_TABLE,
-    }
-except ImportError:
-    pass  # use hardcoded defaults above
-
 
 # ─────────────────────────────────────────────────────────
 # MAIN EVALUATION

@@ -1,73 +1,75 @@
-# React + TypeScript + Vite
+# Chess AI — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+> React + TypeScript single-page application built with Vite.
 
-Currently, two official plugins are available:
+## Quick Start
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+cd frontend
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Opens at http://localhost:5173
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Pages
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+| Page | Route | Description |
+|------|-------|-------------|
+| **Landing** | `/` | 3-step wizard: Hero → Game Settings → Bot Selection (5 bots with emoji avatars, ELO, depth) |
+| **Game** | `/game` | Main gameplay — interactive chessboard, engine eval bar, move list, clock, coach mode popups, promotion overlay, game-over overlay |
+| **Analysis** | `/analysis` | Post-game review — eval graph (SVG), annotated move list (‼/!/⁈/?/?? symbols), best-move arrow overlay, keyboard navigation |
+| **Arena** | `/arena` | Adaptive difficulty hub — ELO badge, 5×4 ELO ladder grid, win/loss/draw record, collapsible settings, calibration system |
+
+## Component Hierarchy
+
 ```
+App
+├── Header (brand link)
+└── Routes
+    ├── Landing
+    │   ├── Hero (Step 0) — preview board, Arena teaser
+    │   ├── Settings (Step 1) — time/color/clock/coach
+    │   └── Bot Selection (Step 2) — 5 bot cards
+    ├── Game
+    │   ├── EvaluationBar
+    │   ├── Chessboard → Square (×64) + Arrow SVG
+    │   ├── Panel (move list + resign)
+    │   ├── ExplainPopup (coach mode)
+    │   ├── CapturedBar
+    │   └── Game Over Overlay
+    ├── Analysis
+    │   ├── EvalGraph (pure SVG, no charting library)
+    │   ├── Chessboard (read-only + best-move arrow)
+    │   └── AnnotatedMoveList
+    └── Arena
+        ├── ELO Badge + Stats
+        ├── ELO Ladder Grid (5×4)
+        └── Settings Panel
+```
+
+## State Management
+
+All game logic lives in the `useGameController` custom hook:
+
+- **Source of truth**: `chess.js` `Chess` instance in a `useRef` (no re-renders on internal state changes)
+- **Move history**: Stored in a `useRef` to prevent stale closures in async callbacks
+- **Display state**: Derived values in `useState` — board, lastMove, evalCp, turn, clocks, gameOver, etc.
+- **Clock**: `setInterval` at 100ms, decrements active player's time
+- **Engine turns**: Async API call to `/search` or `/arena/search`, then applies response
+- **Premove system**: Queued move stored in both ref (async access) and state (UI display)
+
+## API Integration
+
+All backend calls go through `utils/api.ts`:
+- Base URL: `http://localhost:8000`
+- Arena session ID: UUID via `crypto.randomUUID()`, persisted in `localStorage`
+- Sent as `X-Session-Id` header for all `/arena/*` endpoints
+
+## Tech Stack
+
+- React 19 + TypeScript
+- Vite 7
+- React Router 6
+- chess.js (client-side move validation)
+- Pure SVG for eval graphs (no charting library)

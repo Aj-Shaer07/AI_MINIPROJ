@@ -1,8 +1,42 @@
-venv/
+# ─── Python ───
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
 *.pyd
-.env
-venv/
+*.egg-info/
+*.egg
 .venv/
+venv/
+.env
+*.whl
+
+# ─── Node / Frontend ───
+node_modules/
+dist/
+dist-ssr/
+*.local
+.cache/
+
+# ─── IDE / Editor ───
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+
+# ─── OS ───
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# ─── Data (large binary files) ───
+data/syzygy/
+data/opening_book/*.bin
+data/stockfish/
+data/training/*.csv
+
+# ─── Build / Logs ───
+*.log

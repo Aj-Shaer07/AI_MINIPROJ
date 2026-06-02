@@ -1,3 +1,37 @@
+"""
+Transposition Table — Zobrist-Keyed Position Cache
+==================================================
+Caches evaluated positions to avoid redundant search of the same
+position reached via different move orders (transpositions).
+
+Implementation:
+- **Hash key**:     python-chess transposition_key() (Zobrist-style 64-bit)
+- **Max entries**:  2^20 = 1,048,576 positions
+- **Entry format**: (depth, score, flag, best_move)
+- **Flags**:        EXACT | LOWER_BOUND | UPPER_BOUND
+- **Replacement**:  Depth-preferred (deeper entries survive)
+- **Eviction**:     When full, removes ~25% oldest entries (FIFO)
+
+Provides both a class-based API (TranspositionTable) for per-request
+isolation and module-level convenience functions for shared usage.
+"""
+"""
+Transposition Table — Zobrist-Keyed Position Cache
+==================================================
+Caches evaluated positions to avoid redundant search of the same
+position reached via different move orders (transpositions).
+
+Implementation:
+- **Hash key**:     python-chess transposition_key() (Zobrist-style 64-bit)
+- **Max entries**:  2^20 = 1,048,576 positions
+- **Entry format**: (depth, score, flag, best_move)
+- **Flags**:        EXACT | LOWER_BOUND | UPPER_BOUND
+- **Replacement**:  Depth-preferred (deeper entries survive)
+- **Eviction**:     When full, removes ~25% oldest entries (FIFO)
+
+Provides both a class-based API (TranspositionTable) for per-request
+isolation and module-level convenience functions for shared usage.
+"""
 EXACT, LOWER, UPPER = range(3)
 
 # ─────────────────────────────────────────────────────────

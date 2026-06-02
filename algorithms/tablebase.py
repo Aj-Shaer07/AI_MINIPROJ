@@ -1,3 +1,21 @@
+"""
+Syzygy Endgame Tablebases — Perfect Endgame Play
+================================================
+Probes Syzygy tablebases for positions with ≤5 pieces on the board,
+providing provably optimal play (every move is the fastest path to
+the game-theoretic result).
+
+Two probe types:
+- **WDL (Win/Draw/Loss)**: Determines the outcome from any position
+- **DTZ (Distance To Zeroing)**: Counts plies to the next capture/pawn
+  move, used to pick the fastest winning line
+
+Move selection priority: winning zeroing > winning non-zeroing >
+drawing > losing non-zeroing > losing zeroing.
+
+Includes repetition avoidance in winning positions to prevent
+unnecessary draws.
+"""
 import chess
 import chess.syzygy
 import os

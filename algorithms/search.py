@@ -1,3 +1,43 @@
+"""
+Search Module — Negamax Engine Core
+===================================
+Implements the full search pipeline:
+
+1. **Opening Book**:       Polyglot lookup for known positions
+2. **Syzygy Tablebases**:  Perfect endgame play for ≤5 pieces
+3. **Iterative Deepening**: Progressive depth search (1 → max_depth)
+4. **Aspiration Windows**:  Narrow ±50 cp window around previous score
+5. **Negamax + Alpha-Beta**: Core tree search with pruning
+6. **Null-Move Pruning**:   Skip-a-turn heuristic (R=3 reduction)
+7. **PVS (Principal Variation Search)**: Zero-window for non-PV moves
+8. **LMR (Late Move Reductions)**: Reduced-depth for late quiet moves
+9. **Check Extensions**:    +1 ply when giving check (cap=3)
+10. **Quiescence Search**:  Capture resolution with delta pruning
+11. **Transposition Table**: Zobrist-keyed cache for evaluated positions
+
+Complexity: O(b^d) reduced to ~O(b^(d/2)) with good move ordering,
+where b ≈ 35 (avg branching factor) and d = search depth.
+"""
+"""
+Search Module — Negamax Engine Core
+===================================
+Implements the full search pipeline:
+
+1. **Opening Book**:       Polyglot lookup for known positions
+2. **Syzygy Tablebases**:  Perfect endgame play for ≤5 pieces
+3. **Iterative Deepening**: Progressive depth search (1 → max_depth)
+4. **Aspiration Windows**:  Narrow ±50 cp window around previous score
+5. **Negamax + Alpha-Beta**: Core tree search with pruning
+6. **Null-Move Pruning**:   Skip-a-turn heuristic (R=3 reduction)
+7. **PVS (Principal Variation Search)**: Zero-window for non-PV moves
+8. **LMR (Late Move Reductions)**: Reduced-depth for late quiet moves
+9. **Check Extensions**:    +1 ply when giving check (cap=3)
+10. **Quiescence Search**:  Capture resolution with delta pruning
+11. **Transposition Table**: Zobrist-keyed cache for evaluated positions
+
+Complexity: O(b^d) reduced to ~O(b^(d/2)) with good move ordering,
+where b ≈ 35 (avg branching factor) and d = search depth.
+"""
 import chess
 import time
 from dataclasses import dataclass

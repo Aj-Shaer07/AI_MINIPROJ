@@ -1,3 +1,17 @@
+"""
+Move Ordering — Heuristic Move Prioritization
+==============================================
+Orders moves to maximize alpha-beta pruning efficiency.
+With perfect ordering, alpha-beta reduces complexity from O(b^d) to O(b^(d/2)).
+
+Priority tiers (highest first):
+1. **TT best-move** (10,000):  Previously found best move for this position
+2. **Queen promotions** (9,000): Almost always the best move
+3. **MVV-LVA captures** (1,000+): Most Valuable Victim − Least Valuable Attacker
+4. **Killer moves** (800):     Quiet moves that caused beta cutoffs at same ply
+5. **History heuristic** (0–700): Cumulative cutoff count per (color, from, to),
+                                  incremented by depth² on each beta cutoff
+"""
 import chess
 
 # ─────────────────────────────────────────────────────────
